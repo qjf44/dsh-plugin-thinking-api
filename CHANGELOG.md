@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **修复模型选择器里 CodeBuddy 分组「加载失败」**
+  （`Cannot read properties of undefined (reading 'get')`）。
+  0.1.5 的 `@deepseek-ai/dsh-llm-pi-ai` 在 `modelOf()` 里无条件读取
+  `profile.modelErrors`，而本插件 `buildProfiles()` 手工组装的 profile 缺了
+  该新字段，导致 `ctx.llm.resolveModelInfo`（模型选择器目录枚举对每个模型
+  都会调用）抛 `reading 'get'`，整组 provider 在 UI 里显示「加载失败」。
+  现已对齐 0.1.5 官方 `resolveProfiles` 的产出：补上 `modelErrors: new Map()`，
+  并带上 `maxRequestImageBytes`/`requestImagePixelBudget`/`requestImageMaxBytes`
+  官方默认值（防图片请求路径裸读炸）。设置面板 → 模型选择器均可正常显示。
+
 - **修复浏览器端设置面板加载失败（`Cannot read properties of undefined (reading 'settings')`）**。
   面板数据层原先走 0.1.1 时代的 `ctx.get("connection").api.settings/credentials/llm` 取数，
   而 DSH 0.1.5 起 `connection` 服务上下文已不再暴露 `.api`（只保留 rpc/状态句柄），
