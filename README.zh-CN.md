@@ -101,6 +101,7 @@ export CODEBUDDY_API_KEY=ck_xxxxxxxx
 1. **来源** —— 选模板（CodeBuddy / DeepSeek / OpenRouter / …）或「自定义」。
 2. **API 密钥** —— 粘贴一次即可。模板自带常用默认模型，填完 key 就能直接保存开始对话。
 3. **模型**（可选）—— 点「获取模型列表」拉取端点模型，向导会按名称自动预判思考模型（每条都能用勾选框微调）；也可以手动添加模型 id。
+   > 腾讯 CodeBuddy（`copilot.tencent.com`）不提供 OpenAI 兼容的 `/models` 端点，点「获取模型列表」时会自动填入模板预置模型（而非报 404 错误）；其他端点若 404 则需手动填写模型 id。
 4. **保存** —— 完成。该 provider 会出现在模型选择器里，并走修复版适配器（`supportsDeveloperRole: false`）。
 
 已接入的 provider 可以点「编辑」回填进向导修改，也可以删除。

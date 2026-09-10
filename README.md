@@ -101,6 +101,7 @@ The plugin also registers a **Settings → Thinking API** panel with a single se
 1. **Source** — pick a template (CodeBuddy / DeepSeek / OpenRouter / …) or *Custom*.
 2. **API key** — paste it once. Templates ship sensible default models, so you can save immediately and start chatting.
 3. **Models** (optional) — click *Fetch models* to list the endpoint's models; the wizard pre-flags reasoning models by name (and you can adjust each one with a checkbox). Or add model ids manually.
+   > Tencent CodeBuddy (`copilot.tencent.com`) has no OpenAI-compatible `/models` endpoint; *Fetch models* falls back to the template's default models instead of failing with 404. On other endpoints a 404 means you should enter model ids manually.
 4. **Save** — done. The provider appears in the model picker and uses the fixed adapter (`supportsDeveloperRole: false`).
 
 Existing providers can be edited (the *Edit* button reloads them into the wizard) or removed.

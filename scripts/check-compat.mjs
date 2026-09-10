@@ -150,12 +150,43 @@ if (LlmRuntime === undefined) {
   }
 }
 
-// ---- 契约 5：dsh-settings / dsh-credentials 依赖的辅助函数 ----
+// ---- 契约 5：settings 辅助函数（跨版本：插件用兼容层，两条路径满足其一即可）----
+//
+// 历史：0.1.1-rc.2 时 dsh-settings 导出 installSettingsSection / settingsNamespace /
+// deepEqualJson 三者；0.1.5-rc.1 起全部变动：
+//   deepEqualJson          → 搬到 @deepseek-ai/dsh-util-values（函数体逐字节相同）
+//   installSettingsSection → 变成 SettingsProvider 实例方法 installSection(owner, ...)
+//   settingsNamespace      → 改名 parseSettingsNamespace 且不再导出（校验已内建）
+// 插件 lib/index.mjs 内有兼容层（优先新 API、回退旧 API），故此处按「任一满足」判定。
 const settingsMod = await import(join(nodeModules, '@deepseek-ai', 'dsh-settings', 'lib', 'index.js'))
-for (const fn of ['installSettingsSection', 'settingsNamespace', 'deepEqualJson']) {
-  if (typeof settingsMod?.[fn] === 'function') ok(`dsh-settings 仍导出 ${fn}()`)
-  else fail(`dsh-settings 不再导出 ${fn}()`)
+
+// deepEqualJson：旧位置 或 新包，二者有其一即可
+let deepEqualOk = typeof settingsMod?.deepEqualJson === 'function'
+let deepEqualWhere = deepEqualOk ? 'dsh-settings' : null
+if (!deepEqualOk) {
+  try {
+    const uvMod = await import(join(nodeModules, '@deepseek-ai', 'dsh-util-values', 'lib', 'index.js'))
+    if (typeof uvMod?.deepEqualJson === 'function') {
+      deepEqualOk = true
+      deepEqualWhere = 'dsh-util-values'
+    }
+  } catch { /* 保持 false */ }
 }
+if (deepEqualOk) ok(`deepEqualJson 可用（来自 ${deepEqualWhere}）`)
+else fail('deepEqualJson 在 dsh-settings 与 dsh-util-values 两处都找不到 → 插件兼容层会抛错。')
+
+// installSettingsSection：旧导出函数 或 新实例方法 installSection，二者有其一即可
+const SettingsProvider = settingsMod?.SettingsProvider ?? settingsMod?.default
+if (typeof settingsMod?.installSettingsSection === 'function') ok('installSettingsSection() 仍以函数导出（旧版路径）')
+else if (typeof SettingsProvider?.prototype?.installSection === 'function') ok('SettingsProvider 提供 installSection() 实例方法（新版路径）')
+else fail('installSettingsSection() 与 SettingsProvider.installSection() 都不存在 → settings 接线无法建立。')
+
+// settingsNamespace：旧导出函数 或 新版内建校验，二者有其一即可
+if (typeof settingsMod?.settingsNamespace === 'function') ok('settingsNamespace() 仍以函数导出（旧版路径）')
+else if (typeof settingsMod?.parseSettingsNamespace === 'function') ok('parseSettingsNamespace() 可用（新版路径）')
+else if (typeof SettingsProvider?.prototype?.register === 'function') ok('namespace 校验已内建到 SettingsProvider.register()（新版路径）')
+else fail('settings namespace 校验入口全部缺失。')
+
 const credMod = await import(join(nodeModules, '@deepseek-ai', 'dsh-credentials', 'lib', 'index.js'))
 if (typeof credMod?.credentialRef === 'function') ok('dsh-credentials 仍导出 credentialRef()')
 else fail('dsh-credentials 不再导出 credentialRef()')
