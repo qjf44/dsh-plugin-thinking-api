@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **修复浏览器端插件加载失败（`Failed to load plugins`）**：`dsh.client.inject`
+  不再声明废弃的 `@deepseek-ai/dsh-client-runtime`。
+  client 端所需的 `createSnapshotStore` 已从旧的 `dsh-client-runtime` 迁移到
+  平台内置模块 `@deepseek-ai/dsh-client-store`（由 Web 壳 seed 提供，无需列入
+  inject）。DSH 0.1.5 起不再挂载/client-runtime；继续在 inject 里声明它会
+  **miss 模块表**，导致依赖同患加载失败。现 inject 只保留仍存续的真实客户端服务
+  （`dsh-client-connection`、`dsh-client-locale`）。
+
 ## [0.1.3] - 2026-09-10
 
 ### Fixed
