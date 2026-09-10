@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **修复浏览器端设置面板加载失败（`Cannot read properties of undefined (reading 'settings')`）**。
+  面板数据层原先走 0.1.1 时代的 `ctx.get("connection").api.settings/credentials/llm` 取数，
+  而 DSH 0.1.5 起 `connection` 服务上下文已不再暴露 `.api`（只保留 rpc/状态句柄），
+  导致面板一打开就报错、回退到「加载配置失败」。现已将取数契约迁移到 0.1.5 的
+  cordis 命名空间服务：`ctx.remote.settings.describe()/mutate()`、
+  `ctx.remote.credentials.*`、`ctx.remote.llm.discoverModels()`，并订阅
+  `settings/document-updated`/`credentials/reference-updated`/`llm/adapters-updated`
+  让配置在外部变更后自动刷新生效。
+
 - **修复浏览器端插件加载失败（`Failed to load plugins`）**：`dsh.client.inject`
   不再声明废弃的 `@deepseek-ai/dsh-client-runtime`。
   client 端所需的 `createSnapshotStore` 已从旧的 `dsh-client-runtime` 迁移到
