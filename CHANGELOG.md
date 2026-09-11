@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.6] - 2026-09-11
+
+### Changed
+
+- **文档修正（无代码改动）**：把 0.1.3/0.1.4/0.1.5 的修复正确归档到各自的版本段（此前都堆在
+  `[Unreleased]`）；README 的 DSH 徽章与「支持的 DSH 版本」由 `0.1.0-rc.6` 更新为
+  `0.1.0-rc.6 ~ 0.1.5-rc.1`，并新增 0.1.5 三个契约变更的对照表与 2026-09-11 事故日志。
+  代码与 v0.1.5 完全一致。
+
 ## [0.1.5] - 2026-09-11
 
 ### Fixed
