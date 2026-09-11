@@ -13,7 +13,7 @@
 <p align="center">
   <img src="https://badgen.net/badge/license/MIT/blue" alt="license">
   <img src="https://badgen.net/badge/node/%3E%3D20/green" alt="node">
-  <img src="https://badgen.net/badge/dsh/0.1.0--rc.6/purple" alt="dsh">
+  <img src="https://badgen.net/badge/dsh/0.1.0--rc.6%20%E2%80%93%200.1.5--rc.1/purple" alt="dsh">
   <img src="https://github.com/qjf44/dsh-plugin-thinking-api/actions/workflows/check.yml/badge.svg" alt="ci">
 </p>
 
@@ -138,7 +138,15 @@ export CODEBUDDY_API_KEY=ck_xxxxxxxx
 
 ## 支持的 DSH 版本
 
-基于 DSH `0.1.0-rc.6+`（`@deepseek-ai/dsh-llm-pi-ai`）、pi-ai `0.82.1` 构建。插件对 `PiAiAdapter` 的构造器形状做了防御性依赖；若未来 DSH 改变该内部契约，插件会给出清晰报错而非静默出错——升级 DSH 前请先看本插件的 release notes。
+基于 DSH `0.1.0-rc.6` 至 `0.1.5-rc.1`（`@deepseek-ai/dsh-llm-pi-ai`）、pi-ai `^0.82.1` 构建。插件对 `PiAiAdapter` 的构造器形状做了防御性依赖；若未来 DSH 改变该内部契约，插件会给出清晰报错而非静默出错——升级 DSH 前请先看本插件的 release notes。
+
+**DSH 0.1.5 兼容性。** 0.1.5 同时改动了多个内部契约，v0.1.2 及更早版本在其上会直接报错；v0.1.3–v0.1.5 依次修复（细节见 changelog）：
+
+| 在 DSH 0.1.5 上的现象 | 根因 | 修复版本 |
+| --- | --- | --- |
+| 启动即 `Failed to load plugins` | `dsh.client.inject` 仍声明已被移除的 `@deepseek-ai/dsh-client-runtime` | v0.1.3 |
+| 设置面板 `Cannot read properties of undefined (reading 'settings')` | `connection` 不再暴露 `.api`，取数须改走 `ctx.remote.*` | v0.1.4 |
+| 模型选择器 `CodeBuddy 加载失败: Cannot read properties of undefined (reading 'get')` | 0.1.5 的 `pi-ai` `modelOf()` 会读 `profile.modelErrors`，而插件手组的 profile 缺该字段 | v0.1.5 |
 
 ## 升级 DSH 后 CodeBuddy / 第三方 API 用不了？先跑自检
 
@@ -150,6 +158,16 @@ node scripts/check-compat.mjs --workspace ~/.workbuddy/binaries/node/workspace
 ```
 
 它会逐项核对：插件能否在真实依赖下 import、`PiAiAdapter` 构造器形状、pi-ai provider auth 形状、`llm` 服务注册方法、settings/credentials 辅助函数。**全部 ✓ 才能继续用；有任何 ✗ 就说明需要升级插件**（报错信息会点名是哪个契约变了、去哪改）。
+
+### 历史踩坑记录（2026-09-11，DSH 0.1.1-rc.2 → 0.1.5-rc.1）
+
+0.1.5 一次挪动了三个契约，且各自只在**不同层面**才暴露——这正是「服务能启动」这类检查抓不到它们的原因：
+
+- **客户端预加载（`Failed to load plugins`）。** 0.1.5 移除了 `@deepseek-ai/dsh-client-runtime`，但插件仍在 `dsh.client.inject` 里声明它，加载器找不到模块，整条插件图一起失败。`createSnapshotStore` 也迁到了内置 seed 模块 `@deepseek-ai/dsh-client-store`。修复：从 inject 去掉 runtime，改从 seed 模块导入 store。
+- **渲染层取数（`reading 'settings'`）。** `connection` 不再携带 `.api`，settings/credentials/llm 的读取须改走 cordis 命名空间服务 `ctx.remote.settings` / `ctx.remote.credentials` / `ctx.remote.llm`。注意客户端 bundle 是按内容哈希按请求下发的，这一半**刷新页面即生效，无需重启宿主**。
+- **宿主 profile 形状（`reading 'get'`）。** 0.1.5 的 `pi-ai` `modelOf()` 会无条件执行 `profile.modelErrors.get(model)`。插件是手工组 profile 的（无法直接复用官方 `resolveProfiles`——它没有 `userAgent` / `compat.supportsDeveloperRole` 这两个钩子），而这个手组对象早于该字段存在，于是 `modelCatalog` 枚举时整个 provider 组抛错。单看 `listModels` 走的是 `getModels()`、本身安全，所以该组**能列出**、只在选择器解析每个模型详情时才失败。修复：补上 `modelErrors: new Map()` 以及官方 profile 同样携带的图片预算默认值。**这一半是宿主代码，必须重启 harness 才生效。**
+
+教训：DSH 升级后要在三个层面分别验证（启动、设置面板、模型选择器），不能只看服务有没有起来。
 
 ### 历史踩坑记录（2026-08-18，DSH rc.6 → rc.7）
 

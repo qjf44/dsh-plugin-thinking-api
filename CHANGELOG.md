@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.5] - 2026-09-11
+
 ### Fixed
 
 - **修复模型选择器里 CodeBuddy 分组「加载失败」**
@@ -19,6 +21,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   并带上 `maxRequestImageBytes`/`requestImagePixelBudget`/`requestImageMaxBytes`
   官方默认值（防图片请求路径裸读炸）。设置面板 → 模型选择器均可正常显示。
 
+## [0.1.4] - 2026-09-11
+
+### Fixed
+
 - **修复浏览器端设置面板加载失败（`Cannot read properties of undefined (reading 'settings')`）**。
   面板数据层原先走 0.1.1 时代的 `ctx.get("connection").api.settings/credentials/llm` 取数，
   而 DSH 0.1.5 起 `connection` 服务上下文已不再暴露 `.api`（只保留 rpc/状态句柄），
@@ -28,17 +34,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `settings/document-updated`/`credentials/reference-updated`/`llm/adapters-updated`
   让配置在外部变更后自动刷新生效。
 
+## [0.1.3] - 2026-09-10
+
+### Fixed
+
 - **修复浏览器端插件加载失败（`Failed to load plugins`）**：`dsh.client.inject`
   不再声明废弃的 `@deepseek-ai/dsh-client-runtime`。
   client 端所需的 `createSnapshotStore` 已从旧的 `dsh-client-runtime` 迁移到
   平台内置模块 `@deepseek-ai/dsh-client-store`（由 Web 壳 seed 提供，无需列入
-  inject）。DSH 0.1.5 起不再挂载/client-runtime；继续在 inject 里声明它会
+  inject）。DSH 0.1.5 起不再挂载 client-runtime；继续在 inject 里声明它会
   **miss 模块表**，导致依赖同患加载失败。现 inject 只保留仍存续的真实客户端服务
   （`dsh-client-connection`、`dsh-client-locale`）。
-
-## [0.1.3] - 2026-09-10
-
-### Fixed
 
 - **兼容 DSH 0.1.5-rc.1：`@deepseek-ai/dsh-settings` 收紧导出导致的加载失败**。
   该包在 0.1.5 起不再导出本插件依赖的三个符号，而插件此前是 ESM 具名导入，

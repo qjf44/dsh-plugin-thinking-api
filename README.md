@@ -13,7 +13,7 @@
 <p align="center">
   <img src="https://badgen.net/badge/license/MIT/blue" alt="license">
   <img src="https://badgen.net/badge/node/%3E%3D20/green" alt="node">
-  <img src="https://badgen.net/badge/dsh/0.1.0--rc.6/purple" alt="dsh">
+  <img src="https://badgen.net/badge/dsh/0.1.0--rc.6%20%E2%80%93%200.1.5--rc.1/purple" alt="dsh">
   <img src="https://github.com/qjf44/dsh-plugin-thinking-api/actions/workflows/check.yml/badge.svg" alt="ci">
 </p>
 
@@ -138,7 +138,15 @@ The built-in `llm-pi-ai` adapter already supports custom APIs. It just cannot ex
 
 ## Supported DSH
 
-Built against DSH `0.1.0-rc.6+` (`@deepseek-ai/dsh-llm-pi-ai`), pi-ai `0.82.1`. The plugin defensively reuses `PiAiAdapter`'s constructor shape; if a future DSH changes that internal contract, the plugin fails with a clear error rather than silently misbehaving — check the release notes before upgrading DSH.
+Built against DSH `0.1.0-rc.6` through `0.1.5-rc.1` (`@deepseek-ai/dsh-llm-pi-ai`), pi-ai `^0.82.1`. The plugin defensively reuses `PiAiAdapter`'s constructor shape; if a future DSH changes that internal contract, the plugin fails with a clear error rather than silently misbehaving — check the release notes before upgrading DSH.
+
+**DSH 0.1.5 compatibility.** 0.1.5 moved several internal contracts; versions ≤ 0.1.2 break on it. v0.1.3–v0.1.5 fix them in turn (see the changelog for the full detail):
+
+| Symptom on DSH 0.1.5 | Root cause | Fixed in |
+| --- | --- | --- |
+| `Failed to load plugins` at boot | `dsh.client.inject` still declared the removed `@deepseek-ai/dsh-client-runtime` | v0.1.3 |
+| Settings panel: `Cannot read properties of undefined (reading 'settings')` | `connection` no longer exposes `.api`; reads must go through `ctx.remote.*` | v0.1.4 |
+| Model picker: `CodeBuddy 加载失败: Cannot read properties of undefined (reading 'get')` | 0.1.5 `pi-ai` `modelOf()` reads `profile.modelErrors`, which the plugin's hand-built profile omitted | v0.1.5 |
 
 ## After upgrading DSH, CodeBuddy / third-party APIs stop working? Run the compat check
 
@@ -150,6 +158,16 @@ node scripts/check-compat.mjs --workspace ~/.workbuddy/binaries/node/workspace
 ```
 
 It verifies, item by item: the plugin imports under the real dependencies, the `PiAiAdapter` constructor shape, the pi-ai provider auth shape, the `llm` service registration methods, and the settings/credentials helpers. **All ✓ means you can keep using it; any ✗ means the plugin needs an update** (each failure names the changed contract and where to fix it).
+
+### Incident log (2026-09-11, DSH 0.1.1-rc.2 → 0.1.5-rc.1)
+
+Three contracts moved at once, each surfacing only at a different layer — which is why a "server boots fine" check misses them:
+
+- **Client bundle preload (`Failed to load plugins`).** 0.1.5 dropped `@deepseek-ai/dsh-client-runtime`, but the plugin still declared it in `dsh.client.inject`, so the loader missed the module and the whole plugin graph failed. `createSnapshotStore` also moved to the built-in seed module `@deepseek-ai/dsh-client-store`. Fix: drop the runtime from `inject`; import the store from the seed module.
+- **Renderer data layer (`reading 'settings'`).** `connection` no longer carries `.api`; the settings/credentials/llm reads had to move to the cordis namespace services `ctx.remote.settings` / `ctx.remote.credentials` / `ctx.remote.llm`. Note the client bundle is served per request with a content-hash rev, so this half takes effect on a page reload — no host restart needed.
+- **Host profile shape (`reading 'get'`).** 0.1.5's `pi-ai` `modelOf()` unconditionally evaluates `profile.modelErrors.get(model)`. The plugin builds its profiles by hand (it cannot reuse the official `resolveProfiles`, which has no `userAgent`/`compat.supportsDeveloperRole` hook), and that hand-built object predated the field — so `modelCatalog` enumeration threw for the whole provider group. `listModels` alone uses `getModels()` and stays safe, so the group *listed* fine and only failed once the selector resolved per-model details. Fix: emit `modelErrors: new Map()` plus the image-budget defaults the official profile also carries. **This half is host code and does need a harness restart.**
+
+Lesson: after a DSH upgrade, verify at all three layers (boot, settings panel, model picker) — not just that the server starts.
 
 ### Incident log (2026-08-18, DSH rc.6 → rc.7)
 
