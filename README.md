@@ -79,6 +79,10 @@ thinking-api:
         deepseek-v4-flash:
           name: DeepSeek V4 Flash
           thinking: false
+        deepseek-v4.1-flash:
+          name: DeepSeek V4.1 Flash
+          thinking: true
+          input: [text, image]                   # ← declares vision; makes read_image usable
 ```
 
 Store the key (never paste raw keys into the config):
@@ -129,8 +133,13 @@ Existing providers can be edited (the *Edit* button reloads them into the wizard
 | `thinkingEfforts` | dict | — | auto | Custom level → wire-value mapping, e.g. `{ off: null, high: high, max: xhigh }` |
 | `contextWindow` | number | — | `262144` | Context window size |
 | `maxTokens` | number | — | `32768` | Max output tokens |
+| `input` | array | — | `["text"]` | Input modalities: `["text"]` or `["text","image"]`. Only a model declaring `image` is treated as a vision model by DSH (making `read_image` usable) |
 
 When `thinking: true` and no `thinkingEfforts` is given, the plugin fills a verified DeepSeek-compatible level map (`off` / `high` / `max`, mapping to disabled / `reasoning_effort: high` / `reasoning_effort: xhigh`). Provide `thinkingEfforts` to add levels (`low`/`medium`) or override per API.
+
+> **About `input` / image support**: DSH's `read_image` refuses any route that does not declare `image` (`model "..." does not declare image input`), and this plugin registers every model as text-only by default. To let a model see images, declare `input: [text, image]` — e.g. Tencent CodeBuddy's `deepseek-v4.1-flash`, which is the official natively-multimodal V4.1 Flash. An empty array is synonymous with omitting the field and falls back to `["text"]`.
+>
+> This is a **declaration** only: it does not guarantee the upstream endpoint accepts images. If the endpoint rejects them, you will see an error when an image is actually sent; conversely, if the endpoint supports images but you never declare them, images are blocked locally and never leave your machine.
 
 ## Why not `llm-pi-ai`?
 
@@ -158,6 +167,18 @@ node scripts/check-compat.mjs --workspace ~/.workbuddy/binaries/node/workspace
 ```
 
 It verifies, item by item: the plugin imports under the real dependencies, the `PiAiAdapter` constructor shape, the pi-ai provider auth shape, the `llm` service registration methods, and the settings/credentials helpers. **All ✓ means you can keep using it; any ✗ means the plugin needs an update** (each failure names the changed contract and where to fix it).
+
+### Incident log (2026-09-12, images silently failing)
+
+A user reported that CodeBuddy's `deepseek-v4.1-flash` could not read images. The verdict was **the plugin, not the model**:
+
+- **Symptom.** `read_image` on any picture failed with `model "<id>" does not declare image input; switch to an image-capable model to read images`. Note this refusal happened *before any network request was made*.
+- **Root cause.** `buildModel()` hard-coded `input: ['text']`, and `dsh-llm-pi-ai` maps that verbatim onto `inputModalities`; `dsh-tool-fs`'s `read_image` then refuses any route that does not declare `image`. So the image was **dropped locally** — the upstream being natively multimodal made no difference. The model-entry schema had no `input` field at all, so users could not work around it from `settings.yaml`.
+- **Fix.** Added an optional `input` field (defaulting to `['text']`, so existing behavior is unchanged) and made `buildModel` read it; an empty array is synonymous with omitting it, matching upstream `declaredInput` semantics.
+
+Lesson: **"the model doesn't support it" and "the route never declared it" are different failures.** When debugging vision, check the local capability declaration (`inputModalities`) before suspecting the endpoint — the former blocks images locally, the latter errors server-side, and the two are fixed in completely different places.
+
+One more deployment trap worth remembering: a `file:` dependency in the profile is a **copy**, not a symlink. Editing the plugin repo without re-running `pnpm install` leaves the profile's stale copy untouched and the change silently inert.
 
 ### Incident log (2026-09-11, DSH 0.1.1-rc.2 → 0.1.5-rc.1)
 

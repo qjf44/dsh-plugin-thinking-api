@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.8] - 2026-09-12
+
+### Added
+
+- **`input` 字段：让模型可以声明图片输入（多模态）**。
+  此前 `buildModel()` 把每个模型的 `input` 硬编码为 `['text']`，而 `dsh-llm-pi-ai` 会把它
+  原样映射为 `inputModalities`，于是 DSH 的 `read_image` 一律以
+  `model "<id>" does not declare image input` 拒绝——**图片在本地就被拦下，根本发不出去**，
+  即便上游是原生多模态模型（如 CodeBuddy 的 `deepseek-v4.1-flash`，即官方 V4.1 Flash）。
+  现支持在模型条目里声明 `input: [text, image]`；缺省与空数组同义，均回落为 `['text']`，
+  因此既有配置行为完全不变。
+
+  注意：这是**能力声明**，不代表上游端点真的收图。声明后若端点拒收会在真正传图时报错；
+  反之端点支持而未声明时，图片无法送出。
+
+  已验证：CodeBuddy（`copilot.tencent.com/v2`）的 `deepseek-v4.1-flash` 声明后
+  可正常读图（随机色块盲测 9/9 命中，确认走真实视觉通路而非 OCR 旁路）。
+
 ## [0.1.7] - 2026-09-11
 
 ### Fixed

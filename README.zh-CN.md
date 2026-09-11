@@ -79,6 +79,10 @@ thinking-api:
         deepseek-v4-flash:
           name: DeepSeek V4 Flash
           thinking: false
+        deepseek-v4.1-flash:
+          name: DeepSeek V4.1 Flash
+          thinking: true
+          input: [text, image]                   # ← 声明可看图（多模态），read_image 才可用
 ```
 
 存储密钥（**不要把明文 key 写进配置**）：
@@ -129,8 +133,13 @@ export CODEBUDDY_API_KEY=ck_xxxxxxxx
 | `thinkingEfforts` | dict | — | 自动 | 自定义档位 → 线上参数映射，如 `{ off: null, high: high, max: xhigh }` |
 | `contextWindow` | number | — | `262144` | 上下文窗口大小 |
 | `maxTokens` | number | — | `32768` | 最大输出 token |
+| `input` | array | — | `["text"]` | 输入模态：`["text"]` 或 `["text","image"]`。声明 `image` 后该模型才会被 DSH 认作视觉模型（`read_image` 才可用） |
 
 `thinking: true` 且未给 `thinkingEfforts` 时，插件自动填充已验证可用的 DeepSeek 兼容档位（`off` / `high` / `max`，分别对应关闭 / `reasoning_effort: high` / `reasoning_effort: xhigh`）。需要更多档位（`low`/`medium`）或按 API 定制时，用 `thinkingEfforts` 显式覆盖。
+
+> **关于 `input` / 图片输入**：DSH 的 `read_image` 会拒绝任何未声明 `image` 的路由（报 `model "..." does not declare image input`），而本插件默认把所有模型登记为纯文本。要让某个模型能看图，需显式声明 `input: [text, image]`，例如腾讯 CodeBuddy 的 `deepseek-v4.1-flash`（即官方原生多模态的 V4.1 Flash）。空数组与缺省同义，均回落为 `["text"]`。
+>
+> 注意这只是**声明**，不代表上游端点真的接受图片：声明后若端点拒收，会在真正传图时报错；反之若端点支持而你未声明，图片会在本地就被拦下、根本发不出去。
 
 ## 为什么不用内置 `llm-pi-ai`？
 
@@ -158,6 +167,18 @@ node scripts/check-compat.mjs --workspace ~/.workbuddy/binaries/node/workspace
 ```
 
 它会逐项核对：插件能否在真实依赖下 import、`PiAiAdapter` 构造器形状、pi-ai provider auth 形状、`llm` 服务注册方法、settings/credentials 辅助函数。**全部 ✓ 才能继续用；有任何 ✗ 就说明需要升级插件**（报错信息会点名是哪个契约变了、去哪改）。
+
+### 历史踩坑记录（2026-09-12，图片输入「静默失效」）
+
+用户反馈「CodeBuddy 的 `deepseek-v4.1-flash` 读不了图」，排查结论是**插件的问题，不是模型的问题**：
+
+- **现象**：对任意图片调用 `read_image` 一律报 `model "<id>" does not declare image input; switch to an image-capable model to read images`。注意这个拒绝发生在**发出网络请求之前**。
+- **根因**：`buildModel()` 把 `input` 硬编码为 `['text']`，而 `dsh-llm-pi-ai` 会把它原样映射为 `inputModalities`；`dsh-tool-fs` 的 `read_image` 据此拒绝任何未声明 `image` 的路由。于是图片**在本地就被丢掉**，上游是原生多模态模型也白搭。模型条目 schema 里当时根本没有 `input` 字段，用户无法从 `settings.yaml` 绕过。
+- **修复**：新增可选 `input` 字段（默认 `['text']` 保持行为不变），并把 `buildModel` 改为读取它；空数组与缺省同义（对齐官方 `declaredInput` 语义）。
+
+教训：**「模型不支持」和「路由没声明」是两回事。** 排查视觉问题时，先看本地能力声明（`inputModalities`），再怀疑上游端点——前者会把图拦在本地，后者的报错来自服务端，两者的报错位置和修复方式完全不同。
+
+另一个值得记住的部署陷阱：profile 里的 `file:` 依赖是**拷贝**而非软链。只改插件仓库源码、不重跑 `pnpm install`，profile 里那份旧代码纹丝不动，改动静默不生效。
 
 ### 历史踩坑记录（2026-09-11，DSH 0.1.1-rc.2 → 0.1.5-rc.1）
 
