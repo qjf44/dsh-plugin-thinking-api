@@ -13,7 +13,7 @@
 <p align="center">
   <img src="https://badgen.net/badge/license/MIT/blue" alt="license">
   <img src="https://badgen.net/badge/node/%3E%3D20/green" alt="node">
-  <img src="https://badgen.net/badge/dsh/0.1.0--rc.6%20%E2%80%93%200.1.5--rc.1/purple" alt="dsh">
+  <img src="https://badgen.net/badge/dsh/0.1--0-rc--6%20%E2%80%93%200.1--5-rc--1/purple" alt="dsh">
   <img src="https://github.com/qjf44/dsh-plugin-thinking-api/actions/workflows/check.yml/badge.svg" alt="ci">
 </p>
 

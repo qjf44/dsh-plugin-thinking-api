@@ -7,6 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.7] - 2026-09-11
+
+### Fixed
+
+- **兼容性自检脚本在 pnpm 布局下无法运行**（`scripts/check-compat.mjs`）。
+  原先只在「顶层提升」的 `node_modules` 里找依赖，而 DSH 运行时是 pnpm 布局
+  （包位于 `node_modules/.pnpm/<name>@<version>_<hash>/node_modules/`），导致脚本
+  在任何真实环境上都找不到 `@deepseek-ai/dsh-llm-pi-ai` 并抛未捕获异常。现同时支持
+  两种布局，且依赖缺失时给出可读提示而非堆栈。
+
+### Added
+
+- **`scripts/check-compat.mjs` 新增 3 组 0.1.5 契约检查**：此前它完全不覆盖本轮踩到的三个坑，
+  升级后会给出**假绿灯**。现新增：
+  - pi-ai `modelOf()` 是否要求 `profile.modelErrors`，及插件 `buildProfiles()` 是否提供；
+  - `dsh.client.inject` 是否声明了已移除的客户端模块；
+  - `client.js` 是否仍引用已被移除的 `connection.api`。
+
+- **`scripts/check-docs.mjs` + CI `docs` job**：拦截「代码发了、文档没发」的漂移
+  （CHANGELOG 必须含当前版本段且与 `package.json` 一致；两个 README 的 DSH 徽章必须
+  体现最高支持版本）。此前 CI 只查语法与包结构，所以 0.1.4/0.1.5 的文档掉队没被拦住。
+  `prepublishOnly` 已串上该检查。
+
+### Changed
+
+- **`DESIGN-GUI.md` 同步到 0.1.5 契约**：注入面从 `connection.api` 改为 `ctx.remote.*`
+  （旧写法保留在折叠的迁移参考块里），`inject` 列表与 `@deepseek-ai/dsh-web` peer 范围
+  一并更新。
+- **`PUBLISH-CHECKLIST.md` 新增「文档与版本同步」小节**，并把真机验证扩为三层
+  （启动 / 设置面板 / 模型选择器），明确区分「刷新页面即生效」与「必须重启 Harness」。
+- **修正两个 README 的 DSH 徽章编码**（badgen 需用 `--` 表示字面量点，此前写错导致渲染不正确）。
+
 ## [0.1.6] - 2026-09-11
 
 ### Changed

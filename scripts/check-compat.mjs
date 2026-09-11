@@ -15,18 +15,43 @@
 
 import { createRequire } from 'node:module'
 import { dirname, join, resolve } from 'node:path'
-import { existsSync, mkdtempSync, readFileSync, rmSync, symlinkSync, cpSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, cpSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { fileURLToPath } from 'node:url'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const pkgRoot = resolve(here, '..')
 
+// pnpm 布局下 @deepseek-ai/* 不提升到顶层 node_modules，而是落在
+// <root>/node_modules/.pnpm/<name>@<version>_<hash>/node_modules/<name>。
+// 找出其中版本最高的一个，返回其 node_modules（供后续 join 裸包名解析）。
+function pnpmNodeModules(root) {
+  const store = join(root, 'node_modules', '.pnpm')
+  if (!existsSync(store)) return null
+  let entries
+  try {
+    entries = readdirSync(store)
+  } catch {
+    return null
+  }
+  const best = entries
+    .filter((name) => name.startsWith('@deepseek-ai+dsh-llm-pi-ai@'))
+    .sort()
+    .pop()
+  if (best === undefined) return null
+  const inner = join(store, best, 'node_modules')
+  return existsSync(inner) ? inner : null
+}
+
 function findWorkspaceNodeModules(start) {
   let dir = start
   for (;;) {
     const candidate = join(dir, 'node_modules')
+    // 1) 顶层提升布局
     if (existsSync(join(candidate, '@deepseek-ai', 'dsh-llm-pi-ai'))) return candidate
+    // 2) pnpm 布局：用 .pnpm 实体的 node_modules 作为解析根
+    const pnpm = pnpmNodeModules(dir)
+    if (pnpm !== null) return pnpm
     const parent = dirname(dir)
     if (parent === dir) return null
     dir = parent
@@ -36,16 +61,29 @@ function findWorkspaceNodeModules(start) {
 const args = process.argv.slice(2)
 const wsFlag = args.indexOf('--workspace')
 const explicit = wsFlag !== -1 ? resolve(args[wsFlag + 1]) : null
-// nodeModules = workspace 根/node_modules；显式传参时同样按「根目录」处理
-const nodeModules =
-  explicit !== null
-    ? join(explicit, 'node_modules')
-    : findWorkspaceNodeModules(pkgRoot)
+// 显式传参时先按「根目录」找顶层 node_modules，找不到再尝试该根的 pnpm 布局
+let nodeModules = null
+if (explicit !== null) {
+  const direct = join(explicit, 'node_modules')
+  if (existsSync(join(direct, '@deepseek-ai', 'dsh-llm-pi-ai'))) nodeModules = direct
+  else nodeModules = pnpmNodeModules(explicit) ?? (existsSync(direct) ? direct : null)
+} else {
+  nodeModules = findWorkspaceNodeModules(pkgRoot)
+}
 
 if (nodeModules === null || !existsSync(nodeModules)) {
-  console.error('[check-compat] 找不到 DSH workspace node_modules（含 @deepseek-ai/dsh-llm-pi-ai）。')
-  console.error('[check-compat] 请用 --workspace 指定 workspace 根目录，例如：node scripts/check-compat.mjs --workspace ~/.workbuddy/binaries/node/workspace')
+  console.error('[check-compat] 找不到 DSH 运行时 node_modules（含 @deepseek-ai/dsh-llm-pi-ai）。')
+  console.error('[check-compat] 请用 --workspace 指定 DSH 运行时根目录，例如：')
+  console.error('[check-compat]   node scripts/check-compat.mjs --workspace ~/.dsh/runtime/dsh-app')
+  console.error('[check-compat] 或（profile 布局）：--workspace ~/.dsh/profiles/<profile>')
+  console.error('[check-compat] 支持 npm 顶层提升布局与 pnpm（node_modules/.pnpm）布局。')
   process.exit(2)
+}
+
+// 依赖缺失时不再抛栈：统一走 fail() 并给出可读结论。
+const probePackage = (name, subpath = 'package.json') => {
+  const p = join(nodeModules, name, subpath)
+  return existsSync(p) ? p : null
 }
 
 const readVersion = (name) => {
@@ -190,6 +228,76 @@ else fail('settings namespace 校验入口全部缺失。')
 const credMod = await import(join(nodeModules, '@deepseek-ai', 'dsh-credentials', 'lib', 'index.js'))
 if (typeof credMod?.credentialRef === 'function') ok('dsh-credentials 仍导出 credentialRef()')
 else fail('dsh-credentials 不再导出 credentialRef()')
+
+// ---- 契约 6：pi-ai profile 形状（0.1.5 起 modelOf() 裸读 profile.modelErrors）----
+//
+// 背景：DSH 0.1.5 的 dsh-llm-pi-ai 在 modelOf() 里无条件执行
+//   const failure = profile.modelErrors.get(model) ?? ...
+// 插件无法复用官方 resolveProfiles（缺少 userAgent / compat.supportsDeveloperRole 钩子），
+// 只能手工组装 profile，因此必须自己带上这个新字段；缺了它，模型选择器在枚举每个模型
+// （ctx.llm.resolveModelInfo → adapter.resolveModel → modelOf）时会抛
+// “Cannot read properties of undefined (reading 'get')”，整组 provider 显示「加载失败」。
+// 注意：单独调 listModels()（内部走 getModels）是安全的，所以该组「能列出、点开才崩」。
+{
+  const piAiEntry = probePackage('@deepseek-ai/dsh-llm-pi-ai', 'lib/index.js')
+  if (piAiEntry === null) {
+    fail('找不到 @deepseek-ai/dsh-llm-pi-ai/lib/index.js，无法核对 profile 形状契约。')
+  } else {
+    let src = ''
+    try {
+      src = readFileSync(piAiEntry, 'utf8')
+    } catch { /* 保持空串 */ }
+    // 该版本是否要求 modelErrors（按源码里是否出现裸读判断）
+    const requiresModelErrors = /profile\.modelErrors\s*\.\s*get\(/.test(src)
+    if (!requiresModelErrors) {
+      ok('该 dsh-llm-pi-ai 版本不要求 profile.modelErrors（0.1.1 及更早的旧路径）')
+    } else {
+      // 解析插件源码里 buildProfiles 是否提供了该字段
+      const pluginSrc = readFileSync(join(pkgRoot, 'lib', 'index.mjs'), 'utf8')
+      if (/modelErrors\s*:\s*new Map\(\)/.test(pluginSrc)) {
+        ok('插件 buildProfiles 已提供 profile.modelErrors（兼容 0.1.5 模型目录枚举）')
+      } else {
+        fail('dsh-llm-pi-ai 的 modelOf() 需要 profile.modelErrors，但插件 buildProfiles() 未提供 → 模型选择器会报 “reading \'get\'” 并整组显示「加载失败」。')
+        console.error('       修复：lib/index.mjs buildProfiles() 的 resolved.set(...) 里补 modelErrors: new Map()。')
+      }
+    }
+  }
+}
+
+// ---- 契约 7：客户端 bundle 依赖（dsh.client.inject 不得声明已移除的模块）----
+{
+  const pkgJson = JSON.parse(readFileSync(join(pkgRoot, 'package.json'), 'utf8'))
+  const injectList = pkgJson?.dsh?.client?.inject ?? []
+  const banned = ['@deepseek-ai/dsh-client-runtime']
+  const offenders = (Array.isArray(injectList) ? injectList : []).filter((id) => banned.includes(id))
+  if (offenders.length === 0) {
+    ok(`dsh.client.inject 未声明已移除的客户端模块（${JSON.stringify(injectList)}）`)
+  } else {
+    fail(`dsh.client.inject 仍声明已移除的模块 ${offenders.join(', ')} → Web 端会报 “Failed to load plugins”。`)
+    console.error('       修复：从 package.json 的 dsh.client.inject 去掉这些模块；createSnapshotStore 改从 @deepseek-ai/dsh-client-store 导入。')
+  }
+}
+
+// ---- 契约 8：客户端取数面（connection 是否仍暴露 .api）----
+//
+// 0.1.5 起 connection 只保留 rpc/状态句柄，不再有 .api；面板取数必须走 ctx.remote.*。
+// 本项对「插件源码里是否仍引用 connection.api」做静态检查（client bundle 是浏览器代码，
+// 无法在 Node 里实例化，故按源码文本判定）。
+{
+  const clientSrc = readFileSync(join(pkgRoot, 'lib', 'client.js'), 'utf8')
+  // 只看非注释行，避免命中解释性注释与反例说明
+  const offending = clientSrc
+    .split('\n')
+    .map((line, i) => ({ line, no: i + 1 }))
+    .filter(({ line }) => !/^\s*(\/\/|\*|\/\*)/.test(line))
+    .filter(({ line }) => /\.api\.(settings|credentials|llm)\b/.test(line) || /\bconnection\b\s*\)\s*\.\s*api\b/.test(line))
+  if (offending.length === 0) {
+    ok('client.js 未引用 connection.api（已走 ctx.remote.* 命名空间服务）')
+  } else {
+    fail(`client.js 仍有 ${offending.length} 处 connection.api 取数（行 ${offending.map((o) => o.no).join(', ')}）→ DSH 0.1.5 上会报 “reading \'settings\'”。`)
+    console.error('       修复：改走 ctx.remote.settings / ctx.remote.credentials / ctx.remote.llm，返回值按 { ok, value } 解包。')
+  }
+}
 
 // ---- 清理 ----
 try { rmSync(tmp, { recursive: true, force: true }) } catch { /* best effort */ }

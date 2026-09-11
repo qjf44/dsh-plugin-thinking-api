@@ -7,6 +7,18 @@ on:
   workflow_dispatch:
 
 jobs:
+  docs:
+    name: docs / version sync
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      # 0.1.4/0.1.5 曾把改动留在 [Unreleased] 就发布，README 徽章也停在旧版本。
+      # 这个 job 专门拦住这类「代码发了、文档没发」的漂移。
+      - run: node scripts/check-docs.mjs
+
   syntax:
     name: syntax check
     runs-on: ubuntu-latest
@@ -32,7 +44,7 @@ jobs:
           node -e "
             const p = require('/tmp/pack.json')[0];
             const want = [
-              'lib/index.mjs','lib/client.js','scripts/check-compat.mjs',
+              'lib/index.mjs','lib/client.js','scripts/check-compat.mjs','scripts/check-docs.mjs',
               'cordis.patch.yml','CHANGELOG.md','README.md','README.zh-CN.md','LICENSE','package.json'
             ];
             const have = p.files.map(f => f.path);

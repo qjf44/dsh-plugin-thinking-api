@@ -45,26 +45,49 @@ ctx.slots.inject("settings.section", () => ctx.slots.register({
 
 | 字段 | 来源 | 用途 |
 |---|---|---|
-| `api` | `connection.api` | wire face：`api.settings` / `api.credentials` / `api.llm` |
+| `controller` | 自建 store | 面板数据源（store 直接持有 `ctx`，内部走 `ctx.remote.*`） |
 | `t` | `ctx.locale.bind(NS)` | 文案 |
-| `useSnapshot` | `bindSnapshotSelector(store)` | 响应式读取 store 快照 |
-| `controller` | 自建 store | 面板数据源 |
 
-**关键 wire 方法（面板读写配置全靠它们）**：
+> ⚠️ **0.1.5 契约变更（v0.1.4 起）**：旧版把 wire face 通过 `connection.api` 注入面板
+> （`api.settings` / `api.credentials` / `api.llm`）；DSH 0.1.5 的 `connection` 已不再暴露
+> `.api`，取数一律改走 cordis 命名空间服务 `ctx.remote.settings` / `ctx.remote.credentials` /
+> `ctx.remote.llm`。下表保留新旧对照，**新代码以下方「0.1.5 形状」为准**。
+
+**关键 wire 调用（面板读写配置全靠它们）**：
 
 ```js
-// 读
-api.settings.describe({})            // → { writable, namespaces: [{ns, schema, value, user, base, revision}] }
-api.credentials.describe({ refs })   // → { credentials: { [ref]: {configured, writable} } }
-api.llm.providers({})                // → { providers: LlmConfigurableProvider[] }
+// 读（0.1.5 形状：返回值统一为 { ok, value } / { ok: false, error }）
+ctx.remote.settings.describe()            // → { ok, value: { writable, namespaces: [{ns, value, user, base, revision}] } }
+ctx.remote.credentials.describe(refs)     // → { ok, value: { [ref]: { configured, writable } } }
+ctx.remote.llm.listProviders()            // → { ok, value: LlmConfigurableProvider[] }
+ctx.remote.llm.discoverModels(ns, req)    // → { ok, value: string[] }
 
 // 写
-api.settings.mutate({ ns, ops: [{op:"set"|"unset", path:[...], value}] })
+ctx.remote.settings.mutate(ns, ops, expectedRevision)   // ops: [{op:"set"|"unset", path:[...], value}]
+ctx.remote.credentials.set(keyRef, keyValue)
+ctx.remote.credentials.unset(keyRef)
+
+// 变更订阅（外部改动后自动刷新）
+ctx.remote.$on("settings/document-updated", refresh)
+ctx.remote.$on("credentials/reference-updated", refresh)
+ctx.remote.$on("llm/adapters-updated", refresh)
+```
+
+<details>
+<summary>旧版（0.1.1-rc.2，仅作迁移参考，已不再使用）</summary>
+
+```js
+api.settings.describe({})            // → { writable, namespaces: [...] }
+api.credentials.describe({ refs })   // → { credentials: { [ref]: {...} } }
+api.llm.providers({})                // → { providers: [...] }
+api.settings.mutate({ ns, ops: [...] })
 api.credentials.set({ ref, value })
 api.credentials.unset({ ref })
+```
+</details>
 
-// 探测
-api.llm.discoverModels({ provider?, baseURL?, api?, apiKey?, signal? })
+// 探测（0.1.5：discoverModels 挂在 ctx.remote.llm 上，首参为 settingsNs）
+ctx.remote.llm.discoverModels(NS, { provider?, baseURL?, api?, apiKey?, signal? })
 ```
 
 > 已在官方 models 页源码（`ModelsSettingsStore.load`、`ProviderEditor`、`CustomProviderCard`）中逐行确认。
@@ -145,7 +168,7 @@ peerDependencies 增加 client 端依赖：
 ```json
 "peerDependencies": {
   ...（现有 host peer 不变）,
-  "@deepseek-ai/dsh-web": "^0.1.0-rc.6",
+  "@deepseek-ai/dsh-web": ">=0.1.0-rc.6 <0.1.1 || >=0.1.1-rc.1 <0.1.2 || >=0.1.2-rc.1 <0.1.3 || >=0.1.5-rc.1 <0.1.6",
   "react": "^18.2.0"
 }
 ```
@@ -160,15 +183,16 @@ peerDependencies 增加 client 端依赖：
 
 按 `settings.section` slot 契约实现：
 
-1. **`export const inject`**：`["slots","locale","connection","runtime"]`（对齐官方 models 插件的 inject）。
+1. **`export const inject`**：`["slots","locale","connection","remote","remote.settings","remote.credentials","remote.llm"]`
+   （0.1.5 形状；旧版为 `["slots","locale","connection","runtime"]`——`runtime` 与 `connection.api` 均已废弃）。
 2. **`apply(ctx)`**：
    - `ctx.effect` 注册 locale 字典（zh/en）；
-   - 建立 `ThinkingApiStore`（仿 `ModelsSettingsStore`：`load()` 并行拉 `settings.describe` + `credentials.describe` + `llm.providers`，`mutate()` 写回）；
+   - 建立 `ThinkingApiStore`（仿 `ModelsSettingsStore`：`load()` 并行拉 `ctx.remote.settings.describe()` + `ctx.remote.llm.listProviders()`，再 `ctx.remote.credentials.describe(refs)`，`ctx.remote.settings.mutate()` 写回）；
    - `ctx.slots.inject("settings.section", ...)` 注册面板（`id: "thinking-api"`, `order: 20`, `label: () => t("nav")`）。
 3. **面板组件 `ThinkingApiSection`**：
    - **模板区**：遍历 `templates`，每个模板一个「选模板 + 填 key + 启用」行；
    - **已接入区**：列 `thinking-api.providers`，编辑/删除；
-   - **自由添加区**：表单 + 「获取模型列表」（调 `api.llm.discoverModels`）+ 保存。
+   - **自由添加区**：表单 + 「获取模型列表」（调 `ctx.remote.llm.discoverModels`）+ 保存。
 
 ### 3.4 模板定义（`templates`，host/client 共享）
 
@@ -208,12 +232,12 @@ peerDependencies 增加 client 端依赖：
 
 ### 4.3 「获取模型列表」按钮
 
-调 `api.llm.discoverModels({ baseURL, apiKey })`（host 端 `registerModelDiscovery` 已实现同逻辑，client 复用 wire 即可）。返回 `[{id, name?, contextWindow?, maxTokens?}]`，填充进「模型」列表，每个默认 `thinking: true`。
+调 `ctx.remote.llm.discoverModels(NS, { provider, baseURL, apiKey })`（host 端 `registerModelDiscovery` 已实现同逻辑，client 复用 wire 即可）。返回 `{ ok, value: [{id, name?, contextWindow?, maxTokens?}] }`，填充进「模型」列表，每个默认 `thinking: true`。
 
 ### 4.4 容错
 
-- `settings.describe` / `credentials.describe` 失败 → 显示错误 + 重试，保留上次快照（对齐 `ModelsSettingsStore` 的 `generation` 最新写入胜出机制）。
-- 写入失败 → toast 显示 `api.settings.mutate` 返回的 `result.error.message`。
+- `ctx.remote.settings.describe()` / `ctx.remote.credentials.describe()` 失败（`ok === false`）→ 显示错误 + 重试，保留上次快照（对齐 `ModelsSettingsStore` 的 `generation` 最新写入胜出机制）。
+- 写入失败 → toast 显示 `ctx.remote.settings.mutate()` 返回的 `error.message`。
 - 空 providers → 面板正常显示模板区 + 自由添加区（host 端已修「空名单跳过」）。
 
 ---

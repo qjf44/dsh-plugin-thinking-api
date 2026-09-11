@@ -1,6 +1,6 @@
 {
   "name": "dsh-plugin-thinking-api",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "type": "module",
   "description": "DeepSeek Harness 插件：一键配置任意 OpenAI 兼容 API 并自动带思考模式，同时规避 developer 角色被第三方端点拒绝（content_filter）的问题。",
   "main": "lib/index.mjs",
@@ -18,12 +18,14 @@
     "CHANGELOG.md",
     "README.md",
     "README.zh-CN.md",
-    "LICENSE"
+    "LICENSE",
+    "scripts/check-docs.mjs"
   ],
   "scripts": {
-    "check": "node --check lib/index.mjs && node --check lib/client.js && node --check scripts/check-compat.mjs",
+    "check": "node --check lib/index.mjs && node --check lib/client.js && node --check scripts/check-compat.mjs && node --check scripts/check-docs.mjs",
     "check:compat": "node scripts/check-compat.mjs",
-    "prepublishOnly": "npm run check"
+    "prepublishOnly": "npm run check && npm run check:docs",
+    "check:docs": "node scripts/check-docs.mjs"
   },
   "publishConfig": {
     "access": "public"
