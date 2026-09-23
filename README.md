@@ -13,7 +13,7 @@
 <p align="center">
   <img src="https://badgen.net/badge/license/MIT/blue" alt="license">
   <img src="https://badgen.net/badge/node/%3E%3D20/green" alt="node">
-  <img src="https://badgen.net/badge/dsh/0.1--0-rc--6%20%E2%80%93%200.1--5-rc--1/purple" alt="dsh">
+  <img src="https://badgen.net/badge/dsh/0.1--0-rc--6%20%E2%80%93%200.1--7-rc--1/purple" alt="dsh">
   <img src="https://github.com/qjf44/dsh-plugin-thinking-api/actions/workflows/check.yml/badge.svg" alt="ci">
 </p>
 
@@ -147,7 +147,20 @@ The built-in `llm-pi-ai` adapter already supports custom APIs. It just cannot ex
 
 ## Supported DSH
 
-Built against DSH `0.1.0-rc.6` through `0.1.5-rc.1` (`@deepseek-ai/dsh-llm-pi-ai`), pi-ai `^0.82.1`. The plugin defensively reuses `PiAiAdapter`'s constructor shape; if a future DSH changes that internal contract, the plugin fails with a clear error rather than silently misbehaving — check the release notes before upgrading DSH.
+Built against DSH `0.1.0-rc.6` through `0.1.7-rc.1` (`@deepseek-ai/dsh-llm-pi-ai`), pi-ai `^0.82.1`. The plugin defensively reuses `PiAiAdapter`'s constructor shape; if a future DSH changes that internal contract, the plugin fails with a clear error rather than silently misbehaving — check the release notes before upgrading DSH.
+
+**DSH 0.1.7 compatibility.** 0.1.7 removed `SettingsProvider` and its `installSection()` method, replacing them with `SettingsForms`, which projects the settings page from the plugin's **exported `Config` schema** and only exposes fields marked `.volatile()`. v0.1.9 therefore:
+
+- exports `Config` (0.1.7 reads `fiber.runtime.Config` to build the page), and
+- marks `providers` volatile, probing `volatile()` → `extra('volatile', true)` in that order — probing `.volatile()` alone is **not** enough, see the note below, and
+- wires a third settings branch (`SettingsForms`) beside the existing ≤0.1.1 export-function and 0.1.5/0.1.6 instance-method branches, and
+- unwraps the cosmokit `Volatile` reference that `.volatile()` produces, so `config.providers` still enumerates as a plain dict.
+
+Without the volatile mark, 0.1.7's `describe()` skips this plugin's row entirely and `mutate()` throws `has no volatile fields` — the page silently disappears and CodeBuddy can no longer be saved. Without the `Config` export, the entry is not configurable at all.
+
+> **Beware a stale schemastery inside your profile.** DSH resolves plugin dependencies from the **profile's physical `node_modules`**. If your profile still carries an older copy (e.g. `~/.dsh/profiles/<name>/node_modules/@deepseek-ai/schemastery` at 3.18.2 while the 0.1.7 runtime ships 3.18.4), the plugin resolves the old one. That version has **no** `volatile` handling at all, so the mark silently fails and 0.1.7's `importLegacyDocument()` drops the entire `thinking-api` section of `settings.yaml` (including the CodeBuddy provider directory) after logging only a **warning** — exit code stays 0 and no error is printed.
+>
+> v0.1.9's `extra('volatile', true)` fallback keeps working in exactly that environment (3.18.4's `.volatile()` is literally `return this.extra("volatile", true)`, so the two are equivalent), so **you do not need to delete that copy**, and it survives `pnpm install` re-creating it. Deleting the directory is still fine if you prefer. Do **not** copy 3.18.4 into an old profile in reverse: it needs cosmokit ≥1.8.5 (old profiles have 1.8.3) and will make DSH 0.1.6 fail to boot outright.
 
 **DSH 0.1.5 compatibility.** 0.1.5 moved several internal contracts; versions ≤ 0.1.2 break on it. v0.1.3–v0.1.5 fix them in turn (see the changelog for the full detail):
 

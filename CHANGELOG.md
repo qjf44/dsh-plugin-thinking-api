@@ -7,6 +7,131 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.9] - 2026-09-24
+
+### Fixed
+
+- **DSH 0.1.7 下「设置 → 思考 API」整页消失、CodeBuddy 无法保存**（最严重的一条）。
+  0.1.7 移除了 `SettingsProvider` 及其 `installSection()`，改为 `SettingsForms`：
+  设置页不再由插件显式注册，而是从插件**导出的 `Config` schema** 自动投影，
+  且 `volatileForm()` 只保留标了 `.volatile()` 的字段——`describe()` 对
+  `volatileForm(schema) === undefined` 的行**直接跳过**，`write()` 抛
+  `Plugin entry "thinking-api" has no volatile fields`。
+  后果是插件本体照常加载、provider 却已不在设置页出现，且用户无法再保存配置。
+
+  修复分四处：
+
+  1. **导出 `Config`**。0.1.7 的 `SettingsForms.schema(entry)` 读 `entry.fiber.runtime.Config`，
+     而 cordis 的 `resolveConfig()` 只在插件导出 `Config` 时才把 `fiber.runtime.Config` 填上。
+     此前本插件不导出它，故 0.1.7 上该条目根本不「可配置」。
+  2. **给 `providers` 标 `.volatile()`，且按能力探测条件调用**：
+     `typeof field.volatile === 'function'`。schemastery 3.18.2（DSH ≤ 0.1.6）没有
+     `.volatile()`，无条件调用会让插件在旧版直接崩；3.18.4（0.1.7）才有。
+  3. **补第三条 settings 分支 `SettingsForms`**，与既有「≤0.1.1 导出函数
+     `installSettingsSection`」「0.1.5/0.1.6 实例方法 `installSection`」并存；
+     分支内用官方 0.1.7 写法
+     `ctx.inject(['settings'], child => child.effect(() => child.settings.configure({auto:false}, ctx.fiber)))`
+     关掉 schema 自动生成页（本插件自带 UI），并订阅 `loader/volatile-update` 作为变更信号。
+     三条分支都不匹配时**响亮报错并点名修复位置**，保持本插件「宁可报错不自降级」的一贯设计。
+  4. **解包 cosmokit `Volatile` 引用**。`.volatile()` 会把字段值换成
+     `createVolatile()` 的引用对象（`{ get(), [Symbol.for('cosmokit.volatile.write')] }`），
+     于是 0.1.7 下 `config.providers` 不再是普通对象——直接 `Object.entries()` 会得到一个
+     名为 `get` 的伪 provider（值为函数、`baseURL` 为空）并抛错。
+     新增 `providersOf()` 统一解包，三处读取点（`profiles()`、`validate()`、注册）全部改走它。
+
+  已用真实依赖在两边实测：0.1.6-alpha.2（schemastery 3.18.2）与 0.1.7-rc.1（3.18.4）
+  均能 `import` 插件、通过 `Config` 校验**真实 settings.yaml 里的 CodeBuddy 段落**，
+  且 0.1.7 侧复刻 `describe()` 全链路拿到
+  `value.providers.codebuddy`（6 个模型、`baseURL` 正确）。
+
+- **profile 里残留的旧 schemastery 会让 `volatile` 标记静默失效——这是 0.1.7 丢配置的
+  真正根因**，上面第 2 条的「能力探测」正是它的修复。
+
+  DSH 按 **profile 的物理 `node_modules`** 解析插件依赖，而不是插件源码所在目录。
+  实测（在真实 profile 位置 `createRequire(...).resolve()`）：
+
+  ```
+  @deepseek-ai/schemastery  3.18.2   <- 陈旧物理副本，遮蔽运行时的 3.18.4
+  @deepseek-ai/cosmokit     1.8.3
+  @deepseek-ai/dsh-settings 0.1.6-alpha.2
+  ```
+
+  3.18.2 **完全没有** `volatile` 逻辑（全文件 0 处引用，无 `.volatile()`），于是
+  `typeof field.volatile === 'function'` 为假 → 走「原样返回」兜底 → `meta.volatile`
+  从未置位 → 0.1.7 的 `SettingsForms.volatileForm(schema)` 返回 `undefined` →
+  `describe()` 跳过本插件的行、`importLegacyDocument()` 只记一条 **warn** 就把
+  `settings.yaml` 的 `thinking-api` 段整段丢弃。**全程退出码为 0、无任何 error**，
+  表现为「启动成功，但 CodeBuddy 的 provider 目录没导进来」——极难排查。
+
+  修复是给标记加**三级探测链**，而不是只探测 `.volatile()`：
+
+  ```js
+  const providersSchema =
+    typeof providersField.volatile === 'function'
+      ? providersField.volatile()                                  // 3.18.4+
+      : typeof providersField.extra === 'function'
+        ? providersField.extra('volatile', true)                   // 3.18.2 兜底
+        : providersField
+  ```
+
+  这不是近似替代：3.18.4 的 `.volatile()` 实现本身就是
+  `return this.extra("volatile", true)`（其 `lib/index.mjs:235-238`），两条分支产出
+  的 schema **完全等价**（已断言 `JSON.stringify(meta)` 相同）。而在 3.18.2 上
+  `meta.volatile` 是惰性字段（该版本无任何 volatile 逻辑），标了也不会改变行为，
+  故对 ≤0.1.6 世代安全。
+
+  这样即便 profile 里长期残留 3.18.2 副本，0.1.7 也能正常投影设置页并导入配置——
+  **不需要用户手工删除 profile 里的 `@deepseek-ai/schemastery`**，且能扛住
+  `pnpm install` 因 `pnpm-lock.yaml` 锁定而把该副本重新装回来。
+
+  另加 `assertVolatileProviders()` 自检：0.1.7+ 世代若标记仍未生效，用
+  `logger.error` 打出可 grep 的具体原因与修复位置。**刻意不 throw**——`apply()` 若中断，
+  provider 路由注册会一起死掉（比设置页消失更严重）。
+  离线侧由 `check-compat` 硬失败把关。
+
+  实测四象限（真实 profile 克隆 + 真实运行时）：
+
+  | | profile 残留 3.18.2 | 移除该副本 |
+  |---|---|---|
+  | **0.1.6-alpha.2** | 启动正常、0 处失败 | 启动正常、0 处失败 |
+  | **0.1.7-rc.1** | `thinking-api` 段正常导入（含 CodeBuddy 6 模型） | 同上 |
+
+  另有一条**反向**结论：**不要**把 schemastery 3.18.4 拷进 profile 试图「升级」它。
+  3.18.4 依赖 cosmokit ≥1.8.5 的 `createVolatile`，而 0.1.6 世代的 profile 只有 1.8.3，
+  实测会让整个 0.1.6 启动**硬失败**：
+  `failed to import loader entry dsh-market (dshmarket): The requested module
+  '@deepseek-ai/cosmokit' does not provide an export named 'createVolatile'`。
+  正确做法是让每个运行时世代提供各自的 schemastery。
+
+- **`scripts/check-compat.mjs` 在 pnpm 布局下会误报**。原实现取
+  「`dsh-llm-pi-ai` 的 `.pnpm` 条目内部 node_modules」当解析根，隐含假设 pi-ai 的依赖闭包
+  里带着 `dsh-settings`。该假设在 0.1.7 失效（0.1.7 的 pi-ai 依赖新增
+  `cordis-plugin-loader`、去掉 `dsh-settings`），脚本会报 `ERR_MODULE_NOT_FOUND` 指向
+  `dsh-settings`——这是**脚本定位问题，不是插件不兼容**（0.1.6 只是碰巧能跑）。
+  现改为扫描 `.pnpm` 合成扁平解析根（每个包名取版本最高者），不依赖任何单个包的依赖闭包。
+
+### Added
+
+- **`scripts/check-compat.mjs` 新增 0.1.7 契约检查**：`SettingsForms` 方法面、
+  `Config` 是否导出、`providers` 是否标 `volatile`，并用真实 schemastery+cosmokit
+  复现「校验 → Volatile → 解包」链路，确认插件确实解包后再枚举。
+- **`scripts/check-compat.mjs` 新增「volatile 探测链」跨世代守卫**：断言源码保留
+  `volatile() → extra('volatile', true)` 两级回退，并在**当前实际解析到的** schemastery
+  上复刻该链、确认 `meta.volatile` 一定置位（在真实 profile 上跑时即 3.18.2，
+  等于直接复现最恶劣场景），同时报告该版本 `validate()` 后是否为 Volatile 引用。
+  这样「探测链被误删」或「profile 换回旧 schemastery」都会在离线阶段被拦下。
+- **README 增补 0.1.7 兼容性说明**（中英），DSH 徽章更新为 `0.1.0-rc.6 – 0.1.7-rc.1`。
+
+### Changed
+
+- **`peerDependencies` 的六个 `@deepseek-ai/dsh-*` 范围放宽至覆盖 0.1.7**
+  （新增 `>=0.1.6-0 <0.1.7-rc.1 || >=0.1.7-rc.1 <0.1.8`）。
+  0.1.7 起 `@deepseek-ai/dsh-app-boot` 会**强制校验 peer 范围**：不满足的 bundle 被
+  「跳过」、插件被置为 `disabled`——且只写 stderr、退出码仍为 0，表现为「启动成功但插件全没了」。
+  已用 app-boot 同款谓词（`semver.satisfies(v, range, {includePrerelease:true})`）
+  在 0.1.0-rc.6 / 0.1.1-rc.1 / 0.1.2-rc.1 / 0.1.5-rc.1 / 0.1.6-alpha.2 / 0.1.7-rc.1
+  全部实测 PASS。
+
 ## [0.1.8] - 2026-09-12
 
 ### Added

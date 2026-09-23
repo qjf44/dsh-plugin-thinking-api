@@ -15,7 +15,7 @@
 
 import { createRequire } from 'node:module'
 import { dirname, join, resolve } from 'node:path'
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, cpSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, cpSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { fileURLToPath } from 'node:url'
 
@@ -24,23 +24,65 @@ const pkgRoot = resolve(here, '..')
 
 // pnpm 布局下 @deepseek-ai/* 不提升到顶层 node_modules，而是落在
 // <root>/node_modules/.pnpm/<name>@<version>_<hash>/node_modules/<name>。
-// 找出其中版本最高的一个，返回其 node_modules（供后续 join 裸包名解析）。
+//
+// 旧实现取「dsh-llm-pi-ai 那个 .pnpm 条目内部的 node_modules」当解析根，隐含假设
+// pi-ai 的依赖闭包里带着 dsh-settings。该假设在 DSH 0.1.7 失效：0.1.7 的
+// dsh-llm-pi-ai 依赖里新增 cordis-plugin-loader、去掉了 dsh-settings，
+// 于是本脚本会报 ERR_MODULE_NOT_FOUND 指向 dsh-settings —— 这是**脚本定位问题，
+// 不是插件不兼容**（0.1.6 恰好因为 pi-ai 带着 dsh-settings 才碰巧能跑）。
+//
+// 改为合成一个扁平解析根：扫描 .pnpm 下所有 <scope>/<name>，每个包名取版本最高
+// 的一个软链到临时目录。这样不依赖任何单个包的依赖闭包，对两代布局都成立。
+const flatRootCache = new Map()
 function pnpmNodeModules(root) {
   const store = join(root, 'node_modules', '.pnpm')
   if (!existsSync(store)) return null
+  if (flatRootCache.has(store)) return flatRootCache.get(store)
+
   let entries
   try {
     entries = readdirSync(store)
   } catch {
     return null
   }
-  const best = entries
-    .filter((name) => name.startsWith('@deepseek-ai+dsh-llm-pi-ai@'))
-    .sort()
-    .pop()
-  if (best === undefined) return null
-  const inner = join(store, best, 'node_modules')
-  return existsSync(inner) ? inner : null
+
+  // 收集 <scope>/<name> → 最高版本的实体目录
+  const best = new Map()
+  for (const dir of entries) {
+    if (dir.startsWith('.')) continue
+    const inner = join(store, dir, 'node_modules')
+    if (!existsSync(inner)) continue
+    for (const scopeOrName of readdirSync(inner)) {
+      const scopePath = join(inner, scopeOrName)
+      // 既支持 @scope/name，也支持无 scope 的裸包
+      const names = scopeOrName.startsWith('@')
+        ? readdirSync(scopePath).map((n) => [`${scopeOrName}/${n}`, join(scopePath, n)])
+        : [[scopeOrName, scopePath]]
+      for (const [pkgName, pkgPath] of names) {
+        if (!existsSync(join(pkgPath, 'package.json'))) continue
+        // 用 pnpm 目录名里的版本排序，保证「最高版本胜出」
+        const previous = best.get(pkgName)
+        if (previous === undefined || dir > previous.sortKey) best.set(pkgName, { pkgPath, sortKey: dir })
+      }
+    }
+  }
+  if (best.size === 0) {
+    flatRootCache.set(store, null)
+    return null
+  }
+
+  const flat = mkdtempSync(join(tmpdir(), 'thinking-api-flat-'))
+  for (const [pkgName, { pkgPath }] of best) {
+    const target = join(flat, pkgName)
+    mkdirSync(dirname(target), { recursive: true })
+    try {
+      symlinkSync(pkgPath, target, 'dir')
+    } catch {
+      /* 同名冲突时保留先到的（版本排序已保证择优） */
+    }
+  }
+  flatRootCache.set(store, flat)
+  return flat
 }
 
 function findWorkspaceNodeModules(start) {
@@ -213,16 +255,139 @@ if (!deepEqualOk) {
 if (deepEqualOk) ok(`deepEqualJson 可用（来自 ${deepEqualWhere}）`)
 else fail('deepEqualJson 在 dsh-settings 与 dsh-util-values 两处都找不到 → 插件兼容层会抛错。')
 
-// installSettingsSection：旧导出函数 或 新实例方法 installSection，二者有其一即可
+// installSettingsSection：三个世代满足其一即可（插件内有三段分支）
 const SettingsProvider = settingsMod?.SettingsProvider ?? settingsMod?.default
-if (typeof settingsMod?.installSettingsSection === 'function') ok('installSettingsSection() 仍以函数导出（旧版路径）')
-else if (typeof SettingsProvider?.prototype?.installSection === 'function') ok('SettingsProvider 提供 installSection() 实例方法（新版路径）')
-else fail('installSettingsSection() 与 SettingsProvider.installSection() 都不存在 → settings 接线无法建立。')
+if (typeof settingsMod?.installSettingsSection === 'function') {
+  ok('installSettingsSection() 仍以函数导出（0.1.1-rc.x 路径，分支①）')
+} else if (typeof SettingsProvider?.prototype?.installSection === 'function') {
+  ok('SettingsProvider 提供 installSection() 实例方法（0.1.5 / 0.1.6 路径，分支②）')
+} else if (typeof settingsMod?.SettingsForms === 'function') {
+  // 0.1.7+：installSection 被移除，改由 SettingsForms 从插件导出的 Config 自动投影表单。
+  const proto = settingsMod.SettingsForms.prototype
+  const need = ['configure', 'describe', 'update', 'replace', 'mutate']
+  const missing = need.filter((m) => typeof proto?.[m] !== 'function')
+  if (missing.length === 0) ok('SettingsForms 提供 configure/describe/update/replace/mutate（0.1.7+ 路径，分支③）')
+  else fail(`SettingsForms 缺少方法 ${missing.join(', ')} → 0.1.7+ 的 settings 接线会失败。`)
+} else {
+  fail('installSettingsSection() / SettingsProvider.installSection() / SettingsForms 三者都不存在 → settings 接线无法建立。')
+}
 
-// settingsNamespace：旧导出函数 或 新版内建校验，二者有其一即可
+// 0.1.7+ 专属：插件必须导出 Config，且 providers 必须标 volatile，
+// 否则 SettingsForms.describe() 会因 volatileForm(schema) === undefined 直接跳过本插件的行，
+// 表现为「设置 → 思考 API 整页消失」，且 mutate/update 抛 "has no volatile fields"。
+{
+  const hasForms = typeof settingsMod?.SettingsForms === 'function'
+  if (!hasForms) {
+    ok('该 dsh-settings 不校验 volatile（≤0.1.6 用 installSection 显式注册，无此要求）')
+  } else if (mod === null || mod.Config === undefined) {
+    fail('DSH 0.1.7+ 下插件未导出 Config → SettingsForms 无法投影设置页（「设置 → 思考 API」会整块消失）。')
+    console.error('       修复：lib/index.mjs 增加 export const Config = z.object({ providers: …volatile() })')
+  } else if (mod.Config?.dict?.providers?.meta?.volatile !== true) {
+    fail('导出的 Config.providers 未标记 volatile → 0.1.7+ 设置页看不到、也存不进 CodeBuddy。')
+    console.error('       修复：保留三级探测 volatile() → extra("volatile", true) → 原样，见 lib/index.mjs providersSchema')
+  } else {
+    ok('Config 已导出且 providers 标了 volatile（0.1.7+ 设置页可见可写）')
+  }
+}
+
+// 0.1.7+ 标记方式的**跨世代**回归守卫。
+//
+// 背景：DSH 按 profile 的物理 node_modules 解析插件依赖。profile 里可能残留更早世代
+// 的 schemastery（3.18.2 既无 .volatile() 也无任何 volatile 逻辑），此时若插件只探测
+// .volatile()，就会静默退化成「未标记」；0.1.7 的 volatileForm(schema) 随即返回
+// undefined，本插件的设置页整块消失、settings.yaml 的 thinking-api 段（CodeBuddy
+// provider 目录）也不会被导入 —— 全程不报错，极难排查（实测踩过一次）。
+//
+// 这里同时守住两件事：
+//   1) 插件源码必须保留三级探测链（volatile → extra('volatile', true) → 原样）；
+//   2) 该链在当前解析到的 schemastery 上确实能产出 meta.volatile === true。
+// 第 2 条在真实 profile 上跑时用的就是 3.18.2，等于直接复现最恶劣场景。
+{
+  const pluginSrc = readFileSync(join(pkgRoot, 'lib', 'index.mjs'), 'utf8')
+  const hasChain =
+    /typeof providersField\.volatile === 'function'/.test(pluginSrc) &&
+    /providersField\.extra\('volatile',\s*true\)/.test(pluginSrc)
+  if (!hasChain) {
+    fail('插件缺少「volatile() → extra("volatile", true)」三级探测链 → 解析到旧 schemastery 时会静默丢失 volatile 标记。')
+    console.error('       修复：providersSchema = 探测 .volatile() → 回退 .extra("volatile", true) → 再回退原样。')
+    console.error('       说明：3.18.4 的 .volatile() 实现就是 `return this.extra("volatile", true)`，两者等价。')
+  } else {
+    ok('插件保留三级 volatile 探测链（可容忍 profile 里的旧 schemastery 副本）')
+  }
+
+  try {
+    const schMod = await import(join(nodeModules, '@deepseek-ai', 'schemastery', 'lib', 'index.mjs'))
+      .catch(() => import(join(nodeModules, '@deepseek-ai', 'schemastery', 'lib', 'index.js')))
+    const zImpl = schMod.default ?? schMod
+    const schVer = JSON.parse(
+      readFileSync(join(nodeModules, '@deepseek-ai', 'schemastery', 'package.json'), 'utf8'),
+    ).version
+    // 复刻插件的探测链，确认在「当前实际解析到的」schemastery 上标记一定成立
+    const field = zImpl.dict(zImpl.object({ a: zImpl.string() })).default({})
+    const branch =
+      typeof field.volatile === 'function' ? 'volatile()'
+        : typeof field.extra === 'function' ? "extra('volatile', true)"
+          : '原样（无标记能力）'
+    const marked = typeof field.volatile === 'function'
+      ? field.volatile()
+      : typeof field.extra === 'function' ? field.extra('volatile', true) : field
+    if (marked?.meta?.volatile !== true) {
+      fail(`schemastery ${schVer} 上探测链未能标出 meta.volatile（走的是 ${branch}）→ 0.1.7+ 会整段丢弃本插件配置。`)
+    } else {
+      ok(`schemastery ${schVer} 上标记成功（走 ${branch}）`)
+    }
+    // 附带说明该版本 validate 后是否为 Volatile 引用（3.18.2 无 volatile 逻辑，属惰性标记）
+    const cfg = zImpl.object({ providers: marked })
+    const res = cfg['~standard'].validate({ providers: { probe: { a: 'x' } } })
+    const wrapped = Symbol.for('cosmokit.volatile.write') in Object(res.value.providers)
+    ok(
+      wrapped
+        ? `schemastery ${schVer} 支持 volatile：validate 后 providers 为 Volatile 引用`
+        : `schemastery ${schVer} 无 volatile 逻辑（≤0.1.6 世代）：meta.volatile 惰性，validate 后仍是普通对象`,
+    )
+  } catch (error) {
+    fail(`volatile 探测链跨世代验证失败: ${error.message}`)
+  }
+}
+
+// 0.1.7+ 读取路径：providers 在真机上被 .volatile() 换成 cosmokit Volatile 引用，
+// 插件必须解包后再枚举，否则会把 { get } 当成 provider 名。
+// 这里用真实 schemastery + cosmokit 复现「validate → Volatile → 解包」链路。
+if (typeof settingsMod?.SettingsForms === 'function' && mod?.Config !== undefined) {
+  try {
+    const schMod = await import(join(nodeModules, '@deepseek-ai', 'schemastery', 'lib', 'index.mjs'))
+      .catch(() => import(join(nodeModules, '@deepseek-ai', 'schemastery', 'lib', 'index.js')))
+    const zImpl = schMod.default ?? schMod
+    const cosmo = await import(join(nodeModules, '@deepseek-ai', 'cosmokit', 'lib', 'index.js')).catch(() => null)
+    const sample = {
+      providers: {
+        probe: { displayName: 'probe', baseURL: 'https://example.invalid/v1', models: { 'm-1': { name: 'm-1' } } },
+      },
+    }
+    const validated = mod.Config['~standard'].validate(sample)
+    if (validated.issues) throw new Error(`导出的 Config 拒绝了合法配置: ${JSON.stringify(validated.issues)}`)
+    const vol = validated.value.providers
+    const wrapped = cosmo?.isVolatile ? cosmo.isVolatile(vol) : Symbol.for('cosmokit.volatile.write') in Object(vol)
+    if (!wrapped) throw new Error('校验后 providers 不是 Volatile 引用 —— 该 schemastery 未启用 .volatile()')
+    // 插件源码里必须有解包逻辑（providersOf / VOLATILE_WRITE）
+    const pluginSrc = readFileSync(join(pkgRoot, 'lib', 'index.mjs'), 'utf8')
+    if (!/cosmokit\.volatile\.write/.test(pluginSrc) || !/function providersOf/.test(pluginSrc)) {
+      throw new Error('插件未解包 Volatile 引用（缺 providersOf / VOLATILE_WRITE）')
+    }
+    ok('0.1.7+ providers 为 Volatile 引用，插件已解包（providersOf + VOLATILE_WRITE）')
+    void zImpl
+  } catch (error) {
+    fail(`0.1.7+ Volatile 读取链路不成立: ${error.message}`)
+  }
+}
+
+// settingsNamespace：旧导出函数 或 新版内建校验，三者有其一即可。
+// 0.1.7+ 把 namespace 校验内建进 SettingsForms，且不再需要调用方传 ns
+// （ns 取 entry.options.id）；插件内的 shim 已自带 NAMESPACE_PATTERN 校验，故此处放行。
 if (typeof settingsMod?.settingsNamespace === 'function') ok('settingsNamespace() 仍以函数导出（旧版路径）')
 else if (typeof settingsMod?.parseSettingsNamespace === 'function') ok('parseSettingsNamespace() 可用（新版路径）')
 else if (typeof SettingsProvider?.prototype?.register === 'function') ok('namespace 校验已内建到 SettingsProvider.register()（新版路径）')
+else if (typeof settingsMod?.SettingsForms === 'function') ok('namespace 校验已内建到 SettingsForms（0.1.7+，ns 取 entry.options.id）')
 else fail('settings namespace 校验入口全部缺失。')
 
 const credMod = await import(join(nodeModules, '@deepseek-ai', 'dsh-credentials', 'lib', 'index.js'))

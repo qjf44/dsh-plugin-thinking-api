@@ -13,7 +13,7 @@
 <p align="center">
   <img src="https://badgen.net/badge/license/MIT/blue" alt="license">
   <img src="https://badgen.net/badge/node/%3E%3D20/green" alt="node">
-  <img src="https://badgen.net/badge/dsh/0.1--0-rc--6%20%E2%80%93%200.1--5-rc--1/purple" alt="dsh">
+  <img src="https://badgen.net/badge/dsh/0.1--0-rc--6%20%E2%80%93%200.1--7-rc--1/purple" alt="dsh">
   <img src="https://github.com/qjf44/dsh-plugin-thinking-api/actions/workflows/check.yml/badge.svg" alt="ci">
 </p>
 
@@ -147,7 +147,20 @@ export CODEBUDDY_API_KEY=ck_xxxxxxxx
 
 ## 支持的 DSH 版本
 
-基于 DSH `0.1.0-rc.6` 至 `0.1.5-rc.1`（`@deepseek-ai/dsh-llm-pi-ai`）、pi-ai `^0.82.1` 构建。插件对 `PiAiAdapter` 的构造器形状做了防御性依赖；若未来 DSH 改变该内部契约，插件会给出清晰报错而非静默出错——升级 DSH 前请先看本插件的 release notes。
+基于 DSH `0.1.0-rc.6` 至 `0.1.7-rc.1`（`@deepseek-ai/dsh-llm-pi-ai`）、pi-ai `^0.82.1` 构建。插件对 `PiAiAdapter` 的构造器形状做了防御性依赖；若未来 DSH 改变该内部契约，插件会给出清晰报错而非静默出错——升级 DSH 前请先看本插件的 release notes。
+
+**DSH 0.1.7 兼容性。** 0.1.7 移除了 `SettingsProvider` 及其 `installSection()`，改用 `SettingsForms`：设置页由插件**导出的 `Config` schema** 自动投影，且只呈现标了 `.volatile()` 的字段。故 v0.1.9 做了四件事：
+
+- 导出 `Config`（0.1.7 读 `fiber.runtime.Config` 来构建设置页）；
+- 给 `providers` 标 `.volatile()`，并按 `volatile()` → `extra('volatile', true)` 三级降级探测——**只探测 `.volatile()` 是不够的**，见下；
+- 在既有「≤0.1.1 导出函数」与「0.1.5/0.1.6 实例方法」两条分支之外，补上第三条 `SettingsForms` 分支；
+- 解包 `.volatile()` 产生的 cosmokit `Volatile` 引用，使 `config.providers` 仍能按普通字典枚举。
+
+漏掉 `.volatile()` 的后果：0.1.7 的 `describe()` 会整行跳过本插件，`mutate()` 抛 `has no volatile fields` —— 设置页静默消失，且 CodeBuddy 无法保存。漏掉 `Config` 导出则整个条目不可配置。
+
+> **注意 profile 里残留的旧 schemastery。** DSH 按 **profile 的物理 `node_modules`** 解析插件依赖。若你的 profile 里还留着一个旧世代副本（例如 `~/.dsh/profiles/<name>/node_modules/@deepseek-ai/schemastery` 为 3.18.2，而 0.1.7 运行时自带 3.18.4），插件就会解析到 3.18.2。该版本**完全没有** `volatile` 逻辑，于是标记失效 → 0.1.7 的 `importLegacyDocument()` 只记一条 **warn** 就把 `settings.yaml` 的 `thinking-api` 段（含 CodeBuddy provider 目录）整段丢弃，**退出码仍为 0、无任何 error**。
+>
+> v0.1.9 的 `extra('volatile', true)` 兜底已能在这种环境下照常工作（3.18.4 的 `.volatile()` 实现本身就是这一行，两者等价），**因此不需要你手工删除该副本**，也能扛住 `pnpm install` 把它重新装回来。若仍想清理，删掉该目录即可——但**不要**把 3.18.4 反向拷进旧 profile：它需要 cosmokit ≥1.8.5（旧 profile 只有 1.8.3），会让 0.1.6 启动直接硬失败。
 
 **DSH 0.1.5 兼容性。** 0.1.5 同时改动了多个内部契约，v0.1.2 及更早版本在其上会直接报错；v0.1.3–v0.1.5 依次修复（细节见 changelog）：
 
