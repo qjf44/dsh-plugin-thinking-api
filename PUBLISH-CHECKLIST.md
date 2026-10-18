@@ -87,3 +87,38 @@ npm publish --access public          # 可选：发到 npm；或用户直接 git
 1. `package.json` 加 `github:qjf44/dsh-plugin-thinking-api` 依赖 + bundle；
 2. `settings.yaml` 写 `thinking-api.providers.<id>`（baseURL + apiKeyEnv + models）；
 3. 存储密钥（Web 模型页或 `export`），重启。
+
+## 8. GitHub Release（2026-10-19 补记：0.1.2–0.1.9 曾经只有 npm 没有 Release）
+
+> 教训：`git push` + `npm publish` **不会**自动产生 GitHub Release。0.1.2～0.1.9
+> 连续八个版本都只发到 npm，Releases 页面停在 v0.1.1，用户从 GitHub 看会觉得项目停更了。
+
+- [ ] 打 tag：`git tag -a v<version> -m "v<version>" <bump 提交>` 后 `git push origin v<version>`
+      —— 注意 tag 必须指向**版本 bump 那次提交**，不能指向 main 的 HEAD
+- [ ] 建 Release：标题 `v<version>`，正文粘 CHANGELOG 对应段落，并在首行标注 npm 状态
+      （`> npm: \`dsh-plugin-thinking-api@<version>\`` 或「未单独发布，随 xx 发布」）
+- [ ] 若某版本因故未发 npm，Release 正文必须写明它随哪个版本一起发布
+
+可复用脚本（读 CHANGELOG 自动生成正文）：
+
+```bash
+node -e '
+const {execSync}=require("child_process");
+const fs=require("fs");
+const TOK=execSync(`printf "protocol=https\nhost=github.com\n\n" | git credential fill`,{encoding:"utf8"})
+  .split("\n").find(l=>l.startsWith("password=")).slice(9);
+const c=fs.readFileSync("CHANGELOG.md","utf8");
+const heads=[...c.matchAll(/^## \[([^\]]+)\](?: - (\S+))?$/gm)];
+const sec={};
+for(let i=0;i<heads.length;i++){
+  const v=heads[i][1];const s=heads[i].index+heads[i][0].length;
+  const e=i+1<heads.length?heads[i+1].index:c.length;
+  sec[v]=c.slice(s,e).trim();
+}
+const v=require("./package.json").version;
+fetch(`https://api.github.com/repos/qjf44/dsh-plugin-thinking-api/releases`,{method:"POST",
+  headers:{Authorization:`Bearer ${TOK}`,Accept:"application/vnd.github+json","Content-Type":"application/json"},
+  body:JSON.stringify({tag_name:`v${v}`,name:`v${v}`,body:sec[v]})})
+ .then(r=>r.json()).then(j=>console.log(j.html_url||j.message));
+'
+```
