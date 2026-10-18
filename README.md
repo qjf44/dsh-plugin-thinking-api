@@ -13,7 +13,7 @@
 <p align="center">
   <img src="https://badgen.net/badge/license/MIT/blue" alt="license">
   <img src="https://badgen.net/badge/node/%3E%3D20/green" alt="node">
-  <img src="https://badgen.net/badge/dsh/0.1--0-rc--6%20%E2%80%93%200.1--7-rc--1/purple" alt="dsh">
+  <img src="https://badgen.net/badge/dsh/0.1--0-rc--6%20%E2%80%93%200.2--1-rc--2/purple" alt="dsh">
   <img src="https://github.com/qjf44/dsh-plugin-thinking-api/actions/workflows/check.yml/badge.svg" alt="ci">
 </p>
 
@@ -121,7 +121,7 @@ Existing providers can be edited (the *Edit* button reloads them into the wizard
 | `baseURL` | string | ✅ | — | API endpoint base URL |
 | `apiKeyEnv` | string | — | — | Env-var name holding the API key |
 | `displayName` | string | — | route id | Name shown in pickers |
-| `thinkingFormat` | enum | — | `deepseek` | `deepseek` \| `openai` \| `openrouter` \| `together` \| `zai` \| `qwen` \| `string-thinking` |
+| `thinkingFormat` | enum | — | `deepseek` | `deepseek` \| `openai` \| `openrouter` \| `together` \| `baseten` \| `zai` \| `qwen` \| `qwen-chat-template` \| `chat-template` \| `string-thinking` \| `ant-ling` |
 | `models` | dict | ✅ | — | Model id → model entry |
 
 ### Model (per `models.<id>`)
@@ -147,7 +147,9 @@ The built-in `llm-pi-ai` adapter already supports custom APIs. It just cannot ex
 
 ## Supported DSH
 
-Built against DSH `0.1.0-rc.6` through `0.1.7-rc.1` (`@deepseek-ai/dsh-llm-pi-ai`), pi-ai `^0.82.1`. The plugin defensively reuses `PiAiAdapter`'s constructor shape; if a future DSH changes that internal contract, the plugin fails with a clear error rather than silently misbehaving — check the release notes before upgrading DSH.
+Built against DSH `0.1.0-rc.6` through `0.2.1-rc.2` (`@deepseek-ai/dsh-llm-pi-ai`), pi-ai `0.82.1` – `1.x`. The plugin defensively reuses `PiAiAdapter`'s constructor shape; if a future DSH changes that internal contract, the plugin fails with a clear error rather than silently misbehaving — check the release notes before upgrading DSH.
+
+**DSH 0.2.x.** pi-ai 1.3.0 added four thinking dialects (`baseten`, `chat-template`, `qwen-chat-template`, `ant-ling`) and `dsh-llm-pi-ai` 0.2.1 accepts all eleven in its `SUPPORTED_THINKING_FORMATS`. v0.1.10 extends the plugin's `thinkingFormat` enum and its default effort table to match, and `check-compat` now diffs the plugin enum against the adapter's source so a future addition fails the check instead of silently rejecting valid config.
 
 **DSH 0.1.7 compatibility.** 0.1.7 removed `SettingsProvider` and its `installSection()` method, replacing them with `SettingsForms`, which projects the settings page from the plugin's **exported `Config` schema** and only exposes fields marked `.volatile()`. v0.1.9 therefore:
 

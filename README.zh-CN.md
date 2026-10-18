@@ -13,7 +13,7 @@
 <p align="center">
   <img src="https://badgen.net/badge/license/MIT/blue" alt="license">
   <img src="https://badgen.net/badge/node/%3E%3D20/green" alt="node">
-  <img src="https://badgen.net/badge/dsh/0.1--0-rc--6%20%E2%80%93%200.1--7-rc--1/purple" alt="dsh">
+  <img src="https://badgen.net/badge/dsh/0.1--0-rc--6%20%E2%80%93%200.2--1-rc--2/purple" alt="dsh">
   <img src="https://github.com/qjf44/dsh-plugin-thinking-api/actions/workflows/check.yml/badge.svg" alt="ci">
 </p>
 
@@ -121,7 +121,7 @@ export CODEBUDDY_API_KEY=ck_xxxxxxxx
 | `baseURL` | string | ✅ | — | API 端点 base URL |
 | `apiKeyEnv` | string | — | — | 存放 API key 的环境变量名 |
 | `displayName` | string | — | 路由 id | 选择器里显示的名字 |
-| `thinkingFormat` | enum | — | `deepseek` | `deepseek` \| `openai` \| `openrouter` \| `together` \| `zai` \| `qwen` \| `string-thinking` |
+| `thinkingFormat` | enum | — | `deepseek` | `deepseek` \| `openai` \| `openrouter` \| `together` \| `baseten` \| `zai` \| `qwen` \| `qwen-chat-template` \| `chat-template` \| `string-thinking` \| `ant-ling` |
 | `models` | dict | ✅ | — | 模型 id → 模型条目 |
 
 ### Model（`models.<id>` 下）
@@ -147,7 +147,9 @@ export CODEBUDDY_API_KEY=ck_xxxxxxxx
 
 ## 支持的 DSH 版本
 
-基于 DSH `0.1.0-rc.6` 至 `0.1.7-rc.1`（`@deepseek-ai/dsh-llm-pi-ai`）、pi-ai `^0.82.1` 构建。插件对 `PiAiAdapter` 的构造器形状做了防御性依赖；若未来 DSH 改变该内部契约，插件会给出清晰报错而非静默出错——升级 DSH 前请先看本插件的 release notes。
+基于 DSH `0.1.0-rc.6` 至 `0.2.1-rc.2`（`@deepseek-ai/dsh-llm-pi-ai`）、pi-ai `0.82.1` – `1.x` 构建。插件对 `PiAiAdapter` 的构造器形状做了防御性依赖；若未来 DSH 改变该内部契约，插件会给出清晰报错而非静默出错——升级 DSH 前请先看本插件的 release notes。
+
+**DSH 0.2.x。** pi-ai 1.3.0 新增 `baseten`、`chat-template`、`qwen-chat-template`、`ant-ling` 四个思考方言，`dsh-llm-pi-ai` 0.2.1 的 `SUPPORTED_THINKING_FORMATS` 已全部收录。v0.1.10 同步扩充插件的 `thinkingFormat` 枚举与默认档位表；`check-compat` 新增一项：把插件枚举与官方源码逐一比对，未来官方再加方言时自检会失败，而不是静默拒绝合法配置。
 
 **DSH 0.1.7 兼容性。** 0.1.7 移除了 `SettingsProvider` 及其 `installSection()`，改用 `SettingsForms`：设置页由插件**导出的 `Config` schema** 自动投影，且只呈现标了 `.volatile()` 的字段。故 v0.1.9 做了四件事：
 

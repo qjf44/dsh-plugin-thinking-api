@@ -464,6 +464,69 @@ else fail('dsh-credentials 不再导出 credentialRef()')
   }
 }
 
+// ---- 契约 9：thinkingFormat 枚举必须覆盖当前 dsh-llm-pi-ai 支持的方言 ----
+//
+// 插件把 thinkingFormat 写进 pi-ai Model.compat，而「哪些方言合法」由官方适配器
+// 的 SUPPORTED_THINKING_FORMATS 决定。pi-ai 每加一个方言（1.3.0 增了 baseten /
+// chat-template / qwen-chat-template / ant-ling），官方 schema 就收一个；
+// 插件没跟上会导致用户在 settings.yaml 里写的新方言被 schema 判为非法 —— 而
+// 这类错误只在**写入/校验时**出现，不报「插件过期」，排查成本高。
+//
+// 这里直接读官方源码里的枚举表，与插件 THINKING_FORMATS 对比。
+{
+  const adapterEntry = probePackage('@deepseek-ai/dsh-llm-pi-ai', 'lib/index.js')
+  const pluginSrc = readFileSync(join(pkgRoot, 'lib', 'index.mjs'), 'utf8')
+  const clientSrc = readFileSync(join(pkgRoot, 'lib', 'client.js'), 'utf8')
+  if (adapterEntry === null) {
+    fail('找不到 dsh-llm-pi-ai 源码，无法核对 thinkingFormat 枚举。')
+  } else {
+    const adapterSrc = readFileSync(adapterEntry, 'utf8')
+    const block = adapterSrc.match(/const SUPPORTED_THINKING_FORMATS = Object\.keys\(\{([\s\S]*?)\}\)/)
+    if (block === null) {
+      ok('该 dsh-llm-pi-ai 未以 SUPPORTED_THINKING_FORMATS 字面量表暴露方言（跳过枚举核对）')
+    } else {
+      const official = [...block[1].matchAll(/["']([a-z-]+)["']\s*:/g)].map((m) => m[1])
+      const listed = (src) => {
+        const m = src.match(/const THINKING_FORMATS = \[([\s\S]*?)\]/)
+        return m === null ? [] : [...m[1].matchAll(/["']([a-z-]+)["']/g)].map((x) => x[1])
+      }
+      const hostFormats = listed(pluginSrc)
+      const clientFormats = listed(clientSrc)
+      const missingHost = official.filter((f) => !hostFormats.includes(f))
+      const missingClient = official.filter((f) => !clientFormats.includes(f))
+      if (missingHost.length === 0 && missingClient.length === 0) {
+        ok(`thinkingFormat 枚举覆盖官方全部方言（${official.length} 个）`)
+      } else {
+        if (missingHost.length > 0) fail(`lib/index.mjs 的 THINKING_FORMATS 缺少官方方言 ${missingHost.join(', ')} → 用户写这些方言会被 schema 拒绝。`)
+        if (missingClient.length > 0) fail(`lib/client.js 的 THINKING_FORMATS 缺少官方方言 ${missingClient.join(', ')} → 向导下拉框里选不到。`)
+      }
+      if (hostFormats.join() !== clientFormats.join()) {
+        fail(`host 与 client 的 THINKING_FORMATS 不一致（host: ${hostFormats.join('/')}；client: ${clientFormats.join('/')}）→ 两端行为漂移。`)
+      }
+    }
+  }
+}
+
+// ---- 契约 10：按 UA 拦截的端点必须有兜底 UA ----
+//
+// 部分 OpenAI 兼容网关按 User-Agent 拒绝脚本客户端（500 request illegal）。
+// dsh-llm-pi-ai 的 requestHeaders 会强制注入 attribution UA 且无法关闭，
+// 因此插件必须在 pi-ai 选项层覆盖。兜底表 USER_AGENT_FALLBACKS 若被误删，
+// 这类端点会 100% 请求失败，且报错与被封禁一模一样、极难定位。
+{
+  const pluginSrc = readFileSync(join(pkgRoot, 'lib', 'index.mjs'), 'utf8')
+  const hasTable = /const USER_AGENT_FALLBACKS = \[/.test(pluginSrc)
+  const hasFn = /function fallbackUserAgent\(/.test(pluginSrc)
+  const applied = /provider\.userAgent \?\? fallbackUserAgent\(/.test(pluginSrc)
+  const appliedOld = /provider\.userAgent\s*\/\/|provider\.userAgent\s*\n/.test(pluginSrc)
+  if (hasTable && hasFn && (applied || appliedOld)) {
+    ok('按 UA 拦截的端点保留兜底 UA（USER_AGENT_FALLBACKS + fallbackUserAgent）')
+  } else {
+    fail('缺少 UA 兜底链路（USER_AGENT_FALLBACKS / fallbackUserAgent 未接线）→ 按 UA 拦截的端点会 100% 报 request illegal。')
+    console.error('       修复：在 lib/index.mjs buildProvider() 里恢复 provider.userAgent ?? fallbackUserAgent(baseURL)。')
+  }
+}
+
 // ---- 清理 ----
 try { rmSync(tmp, { recursive: true, force: true }) } catch { /* best effort */ }
 

@@ -7,6 +7,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.10] - 2026-10-19
+
+跟随 DSH 0.2.x 的技术更新，无破坏性改动。
+
+### Added
+
+- **同步 pi-ai 1.3.0 新增的四个思考方言**：`baseten`、`chat-template`、
+  `qwen-chat-template`、`ant-ling`。`dsh-llm-pi-ai` 0.2.1 的
+  `SUPPORTED_THINKING_FORMATS` 已收录全部 11 个方言，插件的 `thinkingFormat`
+  枚举（host + client 两处）与默认档位表同步跟上。此前写这些方言会被插件的
+  schema 判为非法——而报错只说「值不合法」，不提示插件版本落后，排查成本高。
+- **`check-compat` 新增两项契约检查**：
+  1. 把插件 `THINKING_FORMATS` 与官方 `SUPPORTED_THINKING_FORMATS` 逐一比对，
+     并校验 host 与 client 两份枚举不漂移；
+  2. 校验 UA 兜底链路（`USER_AGENT_FALLBACKS` + `fallbackUserAgent`）仍接线。
+- **`examples/settings.yaml` 纳入 npm 包**（此前只在仓库里，`npm i` 后拿不到）。
+
+### Changed
+
+- **peerDependencies 扩展到 DSH 0.2.x**：新增 `>=0.2.0-rc.1 <0.2.1 ||
+  >=0.2.1-rc.2 <0.3.0` 两段，`@earendil-works/pi-ai` 放宽为 `>=0.82.1 <2`
+  （已对 pi-ai 1.3.0 / dsh-llm-pi-ai 0.2.1-rc.2 实测通过全部契约检查）。
+- **UA 兜底改成表驱动**：原先在 `buildProvider` 里内联 `baseURL.includes(...)`
+  三元判断，现在收敛为 `USER_AGENT_FALLBACKS` 表 + `fallbackUserAgent()`，
+  新增「按 UA 拦截」的端点只需加一行，也让自检脚本能静态核对。
+- README（中英）更新支持范围与 DSH 0.2.x 说明，徽章改为 `0.1.0-rc.6 – 0.2.1-rc.2`。
+
+### Verified
+
+在真实运行时（DSH 0.2.1-rc.2 / pi-ai 1.3.0 / cordis 4.0.5 / schemastery 3.18.5）
+上跑 `node scripts/check-compat.mjs --workspace ~/.dsh/runtime/dsh-app`：
+22 项契约全部 ✓。
+
 ## [0.1.9] - 2026-09-24
 
 ### Fixed
