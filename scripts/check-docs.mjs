@@ -67,6 +67,21 @@ if (lowers.length === 0) {
   }).pop()
   ok(`peer 范围最高支持 DSH ${maxSupported}（下界：${[...new Set(lowers)].join(', ')}）`)
 
+  // ---- 2.1 版本号必须与所对齐的 DSH 版本一致（2026-10-19 起的规则）----
+  //
+  // 用户要求「看版本号就能直观判断插件有没有跟上当前 DSH」。若插件版本与最高支持的
+  // DSH 版本脱钩，这条信息就失效了：装了 DSH 0.2.1-rc.2 的用户看到插件 0.1.10，
+  // 无法判断它是否已适配。故此处硬性要求两者相等。
+  if (version === maxSupported) {
+    ok(`插件版本与所对齐的 DSH 版本一致（${version}）`)
+  } else {
+    fail(
+      `插件版本 ${version} 与最高支持的 DSH 版本 ${maxSupported} 不一致 —— ` +
+        `本仓库的规则是「插件版本号 == 所对齐的 DSH 版本号」（见 PUBLISH-CHECKLIST 第 0 节）。` +
+        `升级 DSH 兼容性时，请把 package.json 的 version 改成同一个版本号。`,
+    )
+  }
+
   // badgen 编码：`--` 代表字面量点，URL 编码（%20/%E2%80%93）需解码。
   // 先解码，再把 `--` 还原为 `.`，才能与真实版本号比对。
   const decode = (s) => {

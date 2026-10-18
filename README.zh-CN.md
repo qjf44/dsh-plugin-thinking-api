@@ -145,6 +145,12 @@ export CODEBUDDY_API_KEY=ck_xxxxxxxx
 
 内置 `llm-pi-ai` 适配器本来就支持自定义 API，只是它无法表达 `supportsDeveloperRole`（它的 `compat` schema 没这个字段，解析器也会丢弃它），于是「白名单外 API + 思考模式」就会撞上 `developer` 角色拒绝。本插件存在的意义，就是补上这缺失的一个字段，其余全部复用。
 
+## 版本号规则：插件版本号 = 所对齐的 DSH 版本号
+
+从 `0.2.1-rc.2` 起，**本插件版本号与它对齐的 DSH 版本号完全相同**（此前是独立递增的 `0.1.x`）。看到 `dsh-plugin-thinking-api@0.2.1-rc.2`，就知道它对应 DSH `0.2.1-rc.2`，不用翻 changelog 猜。`check-docs` 会强制校验：插件版本必须等于 `peerDependencies` 里的最高 DSH 版本，否则 CI 失败。
+
+> `0.1.0` – `0.1.10` 属于旧规则（独立编号），`0.1.10` 是最后一个；它的全部内容都已包含在 `0.2.1-rc.2` 中。
+
 ## 支持的 DSH 版本
 
 基于 DSH `0.1.0-rc.6` 至 `0.2.1-rc.2`（`@deepseek-ai/dsh-llm-pi-ai`）、pi-ai `0.82.1` – `1.x` 构建。插件对 `PiAiAdapter` 的构造器形状做了防御性依赖；若未来 DSH 改变该内部契约，插件会给出清晰报错而非静默出错——升级 DSH 前请先看本插件的 release notes。

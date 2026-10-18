@@ -145,6 +145,12 @@ When `thinking: true` and no `thinkingEfforts` is given, the plugin fills a veri
 
 The built-in `llm-pi-ai` adapter already supports custom APIs. It just cannot express `supportsDeveloperRole` (its `compat` schema omits the field and its resolver drops it), so thinking-mode models on allowlist-less APIs hit the `developer`-role rejection. This plugin exists purely to inject that one missing bit, while reusing everything else.
 
+## Versioning: the plugin version IS the DSH version
+
+From `0.2.1-rc.2` on, **this plugin's version number equals the exact DSH version it is aligned with** (previously it incremented independently as `0.1.x`). So when you see `dsh-plugin-thinking-api@0.2.1-rc.2`, you know immediately that it targets DSH `0.2.1-rc.2` — no need to open the changelog to guess. `check-docs` enforces this: the plugin version must equal the highest DSH version in `peerDependencies`, or CI fails.
+
+> Versions `0.1.0` – `0.1.10` predate this rule and were numbered independently. `0.1.10` is the last of them; everything it contained is included in `0.2.1-rc.2`.
+
 ## Supported DSH
 
 Built against DSH `0.1.0-rc.6` through `0.2.1-rc.2` (`@deepseek-ai/dsh-llm-pi-ai`), pi-ai `0.82.1` – `1.x`. The plugin defensively reuses `PiAiAdapter`'s constructor shape; if a future DSH changes that internal contract, the plugin fails with a clear error rather than silently misbehaving — check the release notes before upgrading DSH.
