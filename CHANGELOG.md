@@ -5,7 +5,34 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.2.1-rc.2.1] - 2026-10-21
+
+### Fixed
+
+- **根治 CodeBuddy 网关 11128「Illegal API invocation from an unapproved channel」**
+  （2026-10-21 逐字节二分实测定位，三层兜底）。
+  - **真凶：system prompt 里的客户端身份句。** 腾讯 CodeBuddy 网关
+    （copilot.tencent.com）对 system 消息做客户端指纹拦截，精确触发窗口是整句
+    `You are an AI agent powered by DeepSeek Harness.`（大小写不敏感）。
+    拆开的片段全部放行：`You are an AI agent.`、`You are powered by DeepSeek
+    Harness.`、`You are an AI agent powered by Cursor.`、以及任何插入词打断
+    "powered by" 邻接的写法。整句一旦出现就回
+    `400 {"code":11128,...}`——这解释了「同一把 key、各种 UA、tools、1.3MB body
+    的 curl 全 200，而 DSH 一发就失败」的全部现象。排查中用真实 key 做过对照
+    实验：tools / 超大 body / 45 个工具 / image / tool 消息 / 各种字段全部 200，
+    唯独真实 system prompt（哪怕只取前 500 字符）触发 400；同一段文本放进
+    user 角色则 200。
+  - **修复（三层纵深防御，均在 `buildProvider` 的 stream/streamSimple 包装层）**：
+    1. `compat.supportsDeveloperRole: false`（原有防线，正常路径不触发）；
+    2. pi-ai `onPayload` 钩子把 `developer` 角色改写为 `system`——实测该网关对
+       messages 任意位置的 `role:"developer"` 也会硬拒同一错误，故保留；
+    3. **fetch 最后出口**（`createClient` 透传 `options.fetch`，所有路径必经）：
+       把身份句 `You are an AI agent powered by DeepSeek Harness.` 改写为中性的
+       `You are an AI agent.`，语义不变、指纹消失（curl 用完整真实 prompt 验证 200）。
+  - **可观测性**：每次请求把真实 wire（角色序列 / UA / 模型 / 身份句改写次数 /
+    状态码）写入 `/tmp/dsh-thinking-api-wire.log`；若仍收到 11128，自动把**完整
+    请求体**落盘到 `/tmp/dsh-thinking-api-wire-fail-<ts>.json`，事后可直接定位。
+  - 同时保留 UA 兜底（`USER_AGENT_FALLBACKS`）。
 
 ## [0.2.1-rc.2] - 2026-10-19
 

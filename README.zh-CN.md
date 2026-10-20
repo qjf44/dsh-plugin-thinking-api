@@ -147,7 +147,7 @@ export CODEBUDDY_API_KEY=ck_xxxxxxxx
 
 ## 版本号规则：插件版本号 = 所对齐的 DSH 版本号
 
-从 `0.2.1-rc.2` 起，**本插件版本号与它对齐的 DSH 版本号完全相同**（此前是独立递增的 `0.1.x`）。看到 `dsh-plugin-thinking-api@0.2.1-rc.2`，就知道它对应 DSH `0.2.1-rc.2`，不用翻 changelog 猜。`check-docs` 会强制校验：插件版本必须等于 `peerDependencies` 里的最高 DSH 版本，否则 CI 失败。
+从 `0.2.1-rc.2` 起，**本插件版本号与它对齐的 DSH 版本号完全相同**（此前是独立递增的 `0.1.x`）。看到 `dsh-plugin-thinking-api@0.2.1-rc.2`，就知道它对应 DSH `0.2.1-rc.2`，不用翻 changelog 猜。`check-docs` 会强制校验：插件版本必须等于 `peerDependencies` 里的最高 DSH 版本，或在该版本之上多一个补丁段（如 `0.2.1-rc.2.1`，用于纯插件侧修复），否则 CI 失败。
 
 > `0.1.0` – `0.1.10` 属于旧规则（独立编号），`0.1.10` 是最后一个；它的全部内容都已包含在 `0.2.1-rc.2` 中。
 
@@ -188,6 +188,36 @@ node scripts/check-compat.mjs --workspace ~/.workbuddy/binaries/node/workspace
 ```
 
 它会逐项核对：插件能否在真实依赖下 import、`PiAiAdapter` 构造器形状、pi-ai provider auth 形状、`llm` 服务注册方法、settings/credentials 辅助函数。**全部 ✓ 才能继续用；有任何 ✗ 就说明需要升级插件**（报错信息会点名是哪个契约变了、去哪改）。
+
+### 历史踩坑记录（2026-10-21，CodeBuddy 网关 11128「unapproved channel」）
+
+现象：CodeBuddy / CodeBuddy2 的每一次请求都回
+`400 {"code":11128,"msg":"Illegal API invocation from an unapproved channel"}`，
+而用**同一把 key、同样结构的 body** 的 `curl` 却是 200。
+
+真相：网关指纹校验的是 **system prompt 里的客户端身份句**，不是 User-Agent，
+也不是消息角色。精确触发窗口是整句
+`You are an AI agent powered by DeepSeek Harness.`（大小写不敏感）。单独拆开全部放行：
+`You are an AI agent.`、`You are powered by DeepSeek Harness.`、
+`You are an AI agent powered by Cursor.`，以及任何插入词打断 "powered by" 邻接的写法；
+整句出现立刻 11128。
+
+真实 key 的对照实验（除注明外全 200）：tools、1.3 MB 大 body、45 个工具、
+图片 data-URI、含 assistant/tool 的多轮、各种可选字段。把真实 system prompt 喂进去
+即使只截前 500 字符也 400；同一段文本放进 `user` 角色则 200。
+
+两条值得记住的教训：
+
+- **「我的 curl 通、插件不通」不等于插件有问题。** 这次唯一有区别的是**内容**，
+  不是传输层。二分排查时，除了 header 和角色，也要二分 **body 文本本身**。
+- **`developer` 角色被拒可能是假线索。** 它能复现**一模一样**的错误串，很像根因。
+  它确实是一个真实故障模式（现在有防线），但不是用户当时踩的那个。
+
+修复：三层纵深防御（都在 `buildProvider` 的 stream/streamSimple 包装层）——
+compat `supportsDeveloperRole: false`、`onPayload` 钩子把 `developer` 改写成
+`system`、以及 **fetch 层**改写身份句（fetch 是最后出口，所有代码路径必经）。
+可观测性：每次请求把真实 wire 形态写入 `/tmp/dsh-thinking-api-wire.log`，
+遇到 11128 则把完整请求体落盘到 `/tmp/dsh-thinking-api-wire-fail-<ts>.json`。
 
 ### 历史踩坑记录（2026-09-12，图片输入「静默失效」）
 

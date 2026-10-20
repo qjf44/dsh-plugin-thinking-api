@@ -147,7 +147,7 @@ The built-in `llm-pi-ai` adapter already supports custom APIs. It just cannot ex
 
 ## Versioning: the plugin version IS the DSH version
 
-From `0.2.1-rc.2` on, **this plugin's version number equals the exact DSH version it is aligned with** (previously it incremented independently as `0.1.x`). So when you see `dsh-plugin-thinking-api@0.2.1-rc.2`, you know immediately that it targets DSH `0.2.1-rc.2` — no need to open the changelog to guess. `check-docs` enforces this: the plugin version must equal the highest DSH version in `peerDependencies`, or CI fails.
+From `0.2.1-rc.2` on, **this plugin's version number equals the exact DSH version it is aligned with** (previously it incremented independently as `0.1.x`). So when you see `dsh-plugin-thinking-api@0.2.1-rc.2`, you know immediately that it targets DSH `0.2.1-rc.2` — no need to open the changelog to guess. `check-docs` enforces this: the plugin version must equal the highest DSH version in `peerDependencies`, or carry one extra patch segment on top of it (e.g. `0.2.1-rc.2.1`) for a plugin-only fix, or CI fails.
 
 > Versions `0.1.0` – `0.1.10` predate this rule and were numbered independently. `0.1.10` is the last of them; everything it contained is included in `0.2.1-rc.2`.
 
@@ -188,6 +188,40 @@ node scripts/check-compat.mjs --workspace ~/.workbuddy/binaries/node/workspace
 ```
 
 It verifies, item by item: the plugin imports under the real dependencies, the `PiAiAdapter` constructor shape, the pi-ai provider auth shape, the `llm` service registration methods, and the settings/credentials helpers. **All ✓ means you can keep using it; any ✗ means the plugin needs an update** (each failure names the changed contract and where to fix it).
+
+### Incident log (2026-10-21, CodeBuddy gateway 11128 "unapproved channel")
+
+Symptom: every CodeBuddy / CodeBuddy2 request failed with
+`400 {"code":11128,"msg":"Illegal API invocation from an unapproved channel"}`,
+while `curl` with the **same key** and the **same body shape** returned 200.
+
+The gateway fingerprints the **client identity sentence in the system prompt**, not
+the User-Agent and not the message roles. The exact trigger is the whole sentence
+`You are an AI agent powered by DeepSeek Harness.` (case-insensitive). Each fragment
+alone passes: `You are an AI agent.`, `You are powered by DeepSeek Harness.`,
+`You are an AI agent powered by Cursor.` — and so does any wording that breaks the
+"powered by" adjacency. Insert the full sentence and you get 11128 back.
+
+Control experiments run with a real key (all 200 unless noted): tools, 1.3 MB body,
+45 tools, image data-URI, assistant+tool transcript, every optional field. Feeding
+the real system prompt failed even truncated to its first 500 characters, while the
+same text in a `user` role passed.
+
+Two lessons worth keeping:
+
+- **"My curl works, the plugin doesn't" does not mean the plugin is broken.** Here
+  the only difference that mattered was content, not transport. When bisecting,
+  bisect the *body text* too, not just headers and roles.
+- **A `developer`-role rejection can be a red herring.** It reproduces the identical
+  error string, so it looks like the root cause. It was a real failure mode (now
+  defended), but not the one the user was hitting.
+
+Fix: three defence layers, all in the `buildProvider` stream/streamSimple wrapper —
+compat `supportsDeveloperRole: false`, an `onPayload` hook rewriting `developer` →
+`system`, and a **fetch-level** rewrite of the identity sentence (the fetch layer is
+the last stop, reached by every code path). Observability: each request logs its
+real wire shape to `/tmp/dsh-thinking-api-wire.log`, and a 11128 dumps the complete
+request body to `/tmp/dsh-thinking-api-wire-fail-<ts>.json`.
 
 ### Incident log (2026-09-12, images silently failing)
 

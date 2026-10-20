@@ -9,12 +9,13 @@
 理由：用户装了 DSH `0.2.1-rc.2`，希望一眼看出插件是否已跟上，而不是翻 changelog。
 `0.1.0` – `0.1.10` 属于旧规则（独立递增），`0.1.10` 是最后一个。
 
-- [ ] `package.json` 的 `version` 与 `peerDependencies` 里的**最高** DSH 版本一致
+- [ ] `package.json` 的 `version` 等于 `peerDependencies` 里的**最高** DSH 版本，
+      或在该版本之上多一个补丁段（`0.2.1-rc.2.1` = 对齐 `0.2.1-rc.2` + 纯插件侧修复）
 - [ ] CHANGELOG 顶部版本段与之一致
 - [ ] `node scripts/check-docs.mjs` 会强制校验；不一致直接 CI 红
 
 升级流程：DSH 从 `0.2.1-rc.2` 升到 `0.2.2` 时 →
-① `peerDependencies` 加上 `>=0.2.2 <0.2.3`；② `version` 改成 `0.2.2`；
+① `peerDependencies` 加上 `>=0.2.2 <0.2.3`；② `version` 改成 `0.2.2`（此后纯插件修复用 `0.2.2.1`、`0.2.2.2`…）；
 ③ CHANGELOG 起一段 `## [0.2.2] - <日期>`；④ 徽章与「支持的 DSH」同步。
 
 ## 1. 包身份（已定稿，发布前核对一致即可）

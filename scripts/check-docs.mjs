@@ -72,8 +72,12 @@ if (lowers.length === 0) {
   // 用户要求「看版本号就能直观判断插件有没有跟上当前 DSH」。若插件版本与最高支持的
   // DSH 版本脱钩，这条信息就失效了：装了 DSH 0.2.1-rc.2 的用户看到插件 0.1.10，
   // 无法判断它是否已适配。故此处硬性要求两者相等。
-  if (version === maxSupported) {
-    ok(`插件版本与所对齐的 DSH 版本一致（${version}）`)
+  // 允许「对齐版本 + 一个补丁段」：例如对齐 DSH 0.2.1-rc.2，插件发 0.2.1-rc.2.1
+  // 来修纯插件侧的 bug。此时版本号仍以 DSH 版本为前缀，语义不变，且不会与已发布
+  // 的同名版本冲突（npm 不允许重复发布同一版本号）。
+  const alignsWithDsh = version === maxSupported || version.startsWith(`${maxSupported}.`)
+  if (alignsWithDsh) {
+    ok(`插件版本与所对齐的 DSH 版本一致（${version}${version === maxSupported ? '' : ` = ${maxSupported} + 补丁段`}）`)
   } else {
     fail(
       `插件版本 ${version} 与最高支持的 DSH 版本 ${maxSupported} 不一致 —— ` +
