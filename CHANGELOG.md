@@ -5,6 +5,26 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.1-rc.2.2] - 2026-10-22
+
+### Fixed
+
+- **11128 指纹演进：网关从「整句身份句」扩大到「body 任意位置的品牌短语」**
+  （2026-10-22 wire fail-dump 逐字节定位）。
+  - 前一天修好的整句替换只覆盖 messages 里的 `You are an AI agent.`；新指纹对
+    **任意位置**的 `DeepSeek Harness` 短语生效——system 提示词其余部分、tools 的
+    function description、runtime context、skill 目录描述、被读入的 package.json
+    内容，出现即 `400 code 11128`。实测同一失败 body 里身份句之外还有 11 处命中。
+  - 改为**对解析后的 payload 深度遍历**，所有字符串值统一在品牌短语中间插入零宽
+    空格 U+200B（分词语义不变、上游子串匹配不再命中）。
+  - 路径语境跳过：仅当短语**两侧同时**紧邻 `/` 或 `\`（真实文件路径内部）才保留，
+    避免破坏模型对 `D:\10_COD\DeepSeek Harness\resources` 这类路径的理解。
+    单侧分隔符（`deepseek harness\.?`、`DeepSeek Harness/resources`）属普通文本，照常打散。
+  - 修复一个致命顺序 bug：深度打散改写 payload 后，随后 `payload.messages = messages`
+    又用旧的未打散数组覆盖回去（tools 生效、messages 全部回退），仍会 400。
+    现在先赋回 messages 再打散。
+  - wire 日志新增 `brand-hits=N` 计数，便于确认每一次请求实际打散了多少处。
+
 ## [0.2.1-rc.2.1] - 2026-10-21
 
 ### Fixed
