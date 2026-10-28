@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+（暂无）
+
+## [0.2.1-rc.2.3] - 2026-10-28
+
 ### Fixed
 
 - **CodeBuddy 网关 `400 / 11128` 的第二个独立指纹：`@` 路径约定两句共现**
