@@ -5,6 +5,37 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **CodeBuddy 网关 `400 / 11128` 的第二个独立指纹：`@` 路径约定两句共现**
+  - **现象**：2026-10-28 12:49 起请求全量 `400 / 11128`；重启与改写 DSH 依赖
+    里的 prompt 源文本后一度恢复，但只要**会话历史**里回显过那两句原文，该会话
+    此后**每一轮**仍稳定 400（新开会话即正常）。
+  - **实测结论**（真 key + `copilot.tencent.com/v2/chat/completions`，
+    `stream: true`；非流式会被网关以 `11101` 拒绝）：
+    - 两句完整共现 → **400 / 11128**；任一句单独出现 → 200；任一句截断或换词 → 200。
+    - **与角色无关**：同样文本放 `system` 或 `assistant` → 400；
+      放 `user` 或带 `tool_call_id` 的 `tool` → 200。
+    - 任一句中间插一个零宽空格（`Tok\u200Bens` / `Relati\u200Bve`）→ **200**。
+    - 原失败 body 原样重放 → 400；只改掉 `assistant` 里那一处 → 200。
+  - **根因**：网关按「两句连续全文」做子串指纹，而这两句会经由**历史消息回显**
+    长期留在上下文里——这正是「改了 prompt 源文本仍然 400」的原因，
+    与 `DeepSeek Harness` 品牌短语无关，旧的 `maskBrandTokens` 对它完全无效。
+  - **修法**：`neutralizeDeepInPlace` 增加第三层 `maskPathConvention`，
+    对两句锚点词插零宽空格；语义不变、指纹消失。
+  - **附带修复**：字符级 masking 会把 `model` 打成 `d\u200Be\u200Be\u200Bp…`，
+    网关回 `11102 model service info not found`。新增 `STRUCTURAL_KEYS`
+    （`model` / `id` / `role` / `type` / `tool_call_id` / `name` / `stream` 等）
+    跳过结构字段，只处理自由文本。
+
+### Known issue
+
+- `dsh-file-reference` 的 prompt 源文本改写位于 `node_modules`，**未入库**；
+  `pnpm install` / DSH 升级会冲掉。冲掉后旧 system 文本会重新出现，
+  但已被上面的第三层 mask 兜住，不再导致 400。
+
 ## [0.2.1-rc.2.2] - 2026-10-22
 
 ### Fixed
